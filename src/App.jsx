@@ -5,22 +5,94 @@ import {
   CircleCheck, CircleX, Coffee, Timer, Shield, Map, Wand2, Flag, Plus,
   ChevronRight, Pin, Scan, Lightbulb, Construction, CalendarDays, Tablet,
   TriangleAlert, X, Check, ArrowRight, Sparkles, CircleAlert, ChevronDown,
-  RotateCcw, Trash2, ChevronLeft, ToggleLeft, ToggleRight, Search
+  RotateCcw, Trash2, ChevronLeft, ToggleLeft, ToggleRight, Search,
+  FileText, Eye, EyeOff
 } from 'lucide-react'
 
-// Mock locations
-const LOCATIONS = [
-  { id: 'all', name: 'All locations', subtitle: 'Company defaults', icon: Building2 },
-  { id: 'loc1', name: 'Downtown SF Store', subtitle: 'San Francisco, CA', icon: MapPin },
-  { id: 'loc2', name: 'Oakland Branch', subtitle: 'Oakland, CA', icon: MapPin },
-  { id: 'loc3', name: 'San Jose Outlet', subtitle: 'San Jose, CA', icon: MapPin },
+// ============================================================
+// MOCK DATA — Cascading scope hierarchy
+// ============================================================
+
+// Policy groups: named collections of locations that share settings
+const POLICY_GROUPS = [
+  {
+    id: 'california',
+    name: 'California',
+    subtitle: '3 locations · State compliance',
+    icon: FileText,
+    locationIds: ['loc1', 'loc2', 'loc3'],
+    overrides: { breaks: true, overtime: true },
+  },
+  {
+    id: 'texas',
+    name: 'Texas',
+    subtitle: '2 locations · State compliance',
+    icon: FileText,
+    locationIds: ['loc4', 'loc5'],
+    overrides: { overtime: true },
+  },
+  {
+    id: 'newyork',
+    name: 'New York',
+    subtitle: '2 locations · State compliance',
+    icon: FileText,
+    locationIds: ['loc6', 'loc7'],
+    overrides: { breaks: true, overtime: true, shiftsFlags: true },
+  },
 ]
 
-// Mock: which settings differ from company defaults per location
-const LOCATION_OVERRIDES = {
-  loc1: { earlyClockIn: true, timeRounding: true }, // these 2 settings differ from company
-  loc2: {},
-  loc3: { breaks: true },
+// Individual locations, each belonging to a policy group
+const LOCATIONS = [
+  // California
+  { id: 'loc1', name: 'Downtown SF Store', subtitle: 'San Francisco, CA', icon: MapPin, groupId: 'california',
+    overrides: { earlyClockIn: true, operatingHours: true } },
+  { id: 'loc2', name: 'Oakland Branch', subtitle: 'Oakland, CA', icon: MapPin, groupId: 'california',
+    overrides: {} },
+  { id: 'loc3', name: 'San Jose Outlet', subtitle: 'San Jose, CA', icon: MapPin, groupId: 'california',
+    overrides: { operatingHours: true } },
+  // Texas
+  { id: 'loc4', name: 'Austin Downtown', subtitle: 'Austin, TX', icon: MapPin, groupId: 'texas',
+    overrides: { operatingHours: true } },
+  { id: 'loc5', name: 'Houston Galleria', subtitle: 'Houston, TX', icon: MapPin, groupId: 'texas',
+    overrides: {} },
+  // New York
+  { id: 'loc6', name: 'Manhattan Midtown', subtitle: 'New York, NY', icon: MapPin, groupId: 'newyork',
+    overrides: { earlyClockIn: true } },
+  { id: 'loc7', name: 'Brooklyn Heights', subtitle: 'Brooklyn, NY', icon: MapPin, groupId: 'newyork',
+    overrides: {} },
+]
+
+// Helper: find group for a location
+const getGroupForLocation = (locationId) => POLICY_GROUPS.find(g => g.locationIds.includes(locationId))
+
+// Helper: convert 12hr time string to minutes since midnight
+const timeTo24 = (t) => {
+  const m = t?.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i)
+  if (!m) return -1
+  let h = parseInt(m[1])
+  const min = parseInt(m[2])
+  const p = m[3].toUpperCase()
+  if (p === 'AM' && h === 12) h = 0
+  if (p === 'PM' && h !== 12) h += 12
+  return h * 60 + min
+}
+
+// Helper: does end time wrap past midnight relative to start?
+const isNextDay = (start, end) => {
+  const s = timeTo24(start)
+  const e = timeTo24(end)
+  if (s < 0 || e < 0) return false
+  return e <= s
+}
+
+// Helper: resolve where a setting comes from for a given location
+// Returns 'location', 'group', or 'company'
+const resolveSettingSource = (locationId, settingKey) => {
+  const loc = LOCATIONS.find(l => l.id === locationId)
+  if (loc?.overrides?.[settingKey]) return 'location'
+  const group = getGroupForLocation(locationId)
+  if (group?.overrides?.[settingKey]) return 'group'
+  return 'company'
 }
 
 // Mock roles grouped by department
@@ -44,11 +116,43 @@ const ROLE_GROUPS = [
 // ============================================================
 
 export default function App() {
-  const [selectedNavIndex, setSelectedNavIndex] = useState(8)
+  const [inSettings, setInSettings] = useState(true)
+
+  if (inSettings) {
+    return (
+      <div className="app-shell">
+        <SettingsScreen onBack={() => setInSettings(false)} />
+      </div>
+    )
+  }
+
   return (
     <div className="app-shell">
-      <MainSidebar selected={selectedNavIndex} onSelect={setSelectedNavIndex} />
-      <SettingsScreen />
+      <MainSidebar onOpenSettings={() => setInSettings(true)} />
+      <MainAppPlaceholder />
+    </div>
+  )
+}
+
+// ============================================================
+// MAIN APP PLACEHOLDER (what you see when not in settings)
+// ============================================================
+
+function MainAppPlaceholder() {
+  return (
+    <div className="main-app-content">
+      <div className="main-app-toolbar">
+        <div className="main-app-user-menu">
+          <div className="main-app-avatar">ML</div>
+          <span className="main-app-user-name">Michael Lee</span>
+          <ChevronDown size={14} />
+        </div>
+      </div>
+      <div className="main-app-body">
+        <Construction size={48} color="var(--text-secondary)" />
+        <h2>Team</h2>
+        <p style={{ color: 'var(--text-secondary)' }}>Main app content goes here</p>
+      </div>
     </div>
   )
 }
@@ -57,7 +161,8 @@ export default function App() {
 // MAIN SIDEBAR
 // ============================================================
 
-function MainSidebar({ selected, onSelect }) {
+function MainSidebar({ onOpenSettings }) {
+  const [selected, setSelected] = useState(2)
   const mainItems = [
     { icon: MessageCircle, label: 'Chat', badge: '3' },
     { icon: CheckSquare, label: 'Task' },
@@ -69,7 +174,6 @@ function MainSidebar({ selected, onSelect }) {
     { icon: Umbrella, label: 'Time Off' },
     { icon: StickyNote, label: 'Note' },
     { icon: DollarSign, label: 'Payroll', trailing: '👑' },
-    { icon: Settings, label: 'Settings' },
   ]
 
   return (
@@ -83,7 +187,7 @@ function MainSidebar({ selected, onSelect }) {
         <div
           key={i}
           className={`sidebar-nav-item ${selected === i ? 'active' : ''}`}
-          onClick={() => onSelect(i)}
+          onClick={() => setSelected(i)}
         >
           <item.icon className="icon" size={20} />
           <span>{item.label}</span>
@@ -99,7 +203,7 @@ function MainSidebar({ selected, onSelect }) {
           <div
             key={idx}
             className={`sidebar-nav-item ${selected === idx ? 'active' : ''}`}
-            onClick={() => onSelect(idx)}
+            onClick={() => setSelected(idx)}
           >
             <item.icon className="icon" size={20} />
             <span>{item.label}</span>
@@ -109,6 +213,12 @@ function MainSidebar({ selected, onSelect }) {
       })}
 
       <div className="sidebar-spacer" />
+
+      <div className="sidebar-settings-btn" onClick={onOpenSettings}>
+        <Settings size={18} />
+        <span>Settings</span>
+        <ChevronRight size={14} />
+      </div>
 
       <div className="sidebar-user">
         <div className="sidebar-avatar">ML</div>
@@ -125,26 +235,86 @@ function MainSidebar({ selected, onSelect }) {
 // SETTINGS SCREEN
 // ============================================================
 
-function SettingsScreen() {
+function SettingsScreen({ onBack }) {
   const [category, setCategory] = useState('scheduling')
   const [item, setItem] = useState('breaks')
-  const [selectedLocationId, setSelectedLocationId] = useState('all')
   const [showComplianceWizard, setShowComplianceWizard] = useState(false)
 
-  const isCompanyScope = selectedLocationId === 'all'
-  const selectedLocation = LOCATIONS.find(l => l.id === selectedLocationId)
-  const overrides = LOCATION_OVERRIDES[selectedLocationId] || {}
+  // Scope: { type: 'company' } | { type: 'group', id } | { type: 'location', id }
+  const [selectedScope, setSelectedScope] = useState({ type: 'company' })
+
+  // Derived scope info
+  const isCompanyScope = selectedScope.type === 'company'
+  const isGroupScope = selectedScope.type === 'group'
+  const isLocationScope = selectedScope.type === 'location'
+
+  const selectedGroup = isGroupScope
+    ? POLICY_GROUPS.find(g => g.id === selectedScope.id)
+    : isLocationScope
+    ? getGroupForLocation(selectedScope.id)
+    : null
+
+  const selectedLocation = isLocationScope
+    ? LOCATIONS.find(l => l.id === selectedScope.id)
+    : null
 
   // Simulated compliance state — toggled when user applies defaults
   const [hasBreakRules, setHasBreakRules] = useState(false)
   const [hasOvertimeConfig, setHasOvertimeConfig] = useState(false)
   const isCompliant = hasBreakRules && hasOvertimeConfig
 
-  const handleNav = (cat, itm) => { setCategory(cat); setItem(itm) }
+  // Dirty state tracking for unsaved changes
+  const [isDirty, setIsDirty] = useState(false)
+  const [pendingNav, setPendingNav] = useState(null)
+  const [showToast, setShowToast] = useState(false)
+  const toastTimer = useRef(null)
+
+  const markDirty = () => setIsDirty(true)
+  const markClean = () => setIsDirty(false)
+
+  const triggerToast = () => {
+    setShowToast(true)
+    if (toastTimer.current) clearTimeout(toastTimer.current)
+    toastTimer.current = setTimeout(() => setShowToast(false), 3000)
+  }
+
+  const handleNav = (cat, itm) => {
+    if (cat === category && itm === item) return
+    if (isDirty) {
+      setPendingNav({ cat, itm })
+      return
+    }
+    setCategory(cat)
+    setItem(itm)
+  }
+
+  const handleSave = () => { markClean(); triggerToast() }
+  const handleDiscardInPlace = () => { markClean() }
+  const handleSaveAndContinue = () => {
+    markClean(); triggerToast()
+    if (pendingNav) { setCategory(pendingNav.cat); setItem(pendingNav.itm); setPendingNav(null) }
+  }
+  const handleDiscard = () => {
+    markClean()
+    if (pendingNav) { setCategory(pendingNav.cat); setItem(pendingNav.itm); setPendingNav(null) }
+  }
+  const handleGoBack = () => { setPendingNav(null) }
 
   const handleApplyBreaks = () => { setHasBreakRules(true) }
   const handleApplyOvertime = () => { setHasOvertimeConfig(true) }
   const handleApplyAll = () => { setHasBreakRules(true); setHasOvertimeConfig(true) }
+
+  // Build scope context object passed to all pages
+  const scopeContext = {
+    selectedScope,
+    isCompanyScope,
+    isGroupScope,
+    isLocationScope,
+    selectedGroup,
+    selectedLocation,
+    markDirty,
+    onChangeScope: setSelectedScope,
+  }
 
   return (
     <>
@@ -155,30 +325,25 @@ function SettingsScreen() {
         hasBreakRules={hasBreakRules}
         hasOvertimeConfig={hasOvertimeConfig}
         onNav={handleNav}
+        onBack={onBack}
+        selectedScope={selectedScope}
+        onSelectScope={setSelectedScope}
       />
       <div className="settings-content">
-        {/* Toolbar: location picker */}
-        <div className="settings-toolbar">
-          <LocationPicker
-            selectedId={selectedLocationId}
-            onSelect={setSelectedLocationId}
-          />
-        </div>
-
-        {/* Compliance banner — full width, below toolbar */}
+        {/* Compliance banner */}
         {!isCompliant && (
           <div className="compliance-banner" onClick={() => setShowComplianceWizard(true)}>
             <div className="compliance-banner-left">
               <CircleAlert size={16} />
               <div className="compliance-banner-text">
                 <strong>Compliance issues detected</strong>
-                <span>
-                  {!hasBreakRules && !hasOvertimeConfig
-                    ? 'Break rules and overtime thresholds need attention.'
+                <span>Your settings may not comply with state labor law. Review {
+                  !hasBreakRules && !hasOvertimeConfig
+                    ? 'break rules and overtime thresholds'
                     : !hasBreakRules
-                    ? 'Break rules need attention.'
-                    : 'Overtime thresholds need attention.'}
-                </span>
+                    ? 'break rules'
+                    : 'overtime thresholds'
+                } to fix.</span>
               </div>
             </div>
             <span className="compliance-banner-action">Fix now <ArrowRight size={14} /></span>
@@ -189,16 +354,24 @@ function SettingsScreen() {
           <ContentRouter
             category={category}
             item={item}
-            isCompanyScope={isCompanyScope}
-            selectedLocation={selectedLocation}
-            overrides={overrides}
+            scopeContext={scopeContext}
             hasBreakRules={hasBreakRules}
             hasOvertimeConfig={hasOvertimeConfig}
             onApplyBreaks={handleApplyBreaks}
             onApplyOvertime={handleApplyOvertime}
           />
         </div>
+
+        {isDirty && !pendingNav && (
+          <UnsavedChangesBar onDiscard={handleDiscardInPlace} onSave={handleSave} />
+        )}
       </div>
+
+      {showToast && <SaveToast onClose={() => setShowToast(false)} />}
+
+      {pendingNav && (
+        <SaveChangesModal onGoBack={handleGoBack} onDiscard={handleDiscard} onSave={handleSaveAndContinue} />
+      )}
 
       {showComplianceWizard && (
         <ComplianceWizard
@@ -215,58 +388,166 @@ function SettingsScreen() {
 }
 
 // ============================================================
-// LOCATION PICKER
+// SAVE CHANGES MODAL
 // ============================================================
 
-function LocationPicker({ selectedId, onSelect }) {
+function SaveChangesModal({ onGoBack, onDiscard, onSave }) {
+  return (
+    <div className="dialog-overlay" onClick={onGoBack}>
+      <div className="save-changes-modal" onClick={e => e.stopPropagation()}>
+        <div className="save-changes-modal-header">
+          <h3>Save changes?</h3>
+          <button className="save-changes-modal-close" onClick={onGoBack}><X size={18} /></button>
+        </div>
+        <p className="save-changes-modal-body">
+          You have unsaved changes on this page. Would you like to save them before leaving?
+        </p>
+        <div className="save-changes-modal-actions">
+          <button className="btn-secondary" onClick={onGoBack}>Go back</button>
+          <button className="btn-discard" onClick={onDiscard}>Discard</button>
+          <button className="btn-primary" onClick={onSave}>Save and continue</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ============================================================
+// UNSAVED CHANGES BOTTOM BAR
+// ============================================================
+
+function UnsavedChangesBar({ onDiscard, onSave }) {
+  return (
+    <div className="unsaved-bar">
+      <div className="unsaved-bar-left">
+        <CircleAlert size={16} />
+        <span>You have unsaved changes.</span>
+      </div>
+      <div className="unsaved-bar-actions">
+        <button className="btn-secondary btn-sm" onClick={onDiscard}>Discard</button>
+        <button className="btn-primary btn-sm" onClick={onSave}>Save</button>
+      </div>
+    </div>
+  )
+}
+
+// ============================================================
+// SAVE TOAST
+// ============================================================
+
+function SaveToast({ onClose }) {
+  return (
+    <div className="save-toast">
+      <div className="save-toast-icon"><CircleCheck size={18} /></div>
+      <span>Settings saved successfully.</span>
+      <button className="save-toast-close" onClick={onClose}><X size={14} /></button>
+    </div>
+  )
+}
+
+// ============================================================
+// SCOPE PICKER (hierarchical: Company → Policy Groups → Locations)
+// ============================================================
+
+function ScopePicker({ selectedScope, onSelect }) {
   const [open, setOpen] = useState(false)
   const ref = useRef(null)
-  const selected = LOCATIONS.find(l => l.id === selectedId)
 
   useEffect(() => {
-    function handleClickOutside(e) {
-      if (ref.current && !ref.current.contains(e.target)) setOpen(false)
-    }
-    document.addEventListener('mousedown', handleClickOutside)
-    return () => document.removeEventListener('mousedown', handleClickOutside)
+    const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false) }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
   }, [])
 
+  // Derive trigger display
+  const getTriggerInfo = () => {
+    if (selectedScope.type === 'company') return { icon: Building2, name: 'Company defaults', sub: 'All locations', iconClass: 'company' }
+    if (selectedScope.type === 'group') {
+      const g = POLICY_GROUPS.find(pg => pg.id === selectedScope.id)
+      return { icon: FileText, name: g?.name + ' policy', sub: g?.locationIds.length + ' locations', iconClass: 'group' }
+    }
+    const loc = LOCATIONS.find(l => l.id === selectedScope.id)
+    return { icon: MapPin, name: loc?.name, sub: loc?.subtitle, iconClass: 'location' }
+  }
+
+  const trigger = getTriggerInfo()
+  const isActive = (type, id) => selectedScope.type === type && (id ? selectedScope.id === id : true)
+
   return (
-    <div className="location-picker" ref={ref}>
-      <button className="location-picker-trigger" onClick={() => setOpen(!open)}>
-        <div className={`location-picker-icon ${selectedId === 'all' ? 'company' : 'location'}`}>
-          {selectedId === 'all' ? <Building2 size={14} /> : <MapPin size={14} />}
+    <div className="scope-picker" ref={ref}>
+      <button className="scope-picker-trigger" onClick={() => setOpen(!open)}>
+        <div className={`scope-picker-icon ${trigger.iconClass}`}>
+          <trigger.icon size={14} />
         </div>
-        <div className="location-picker-label">
-          <span className="location-picker-name">{selected?.name}</span>
-          <span className="location-picker-sub">{selected?.subtitle}</span>
+        <div className="scope-picker-label">
+          <span className="scope-picker-name">{trigger.name}</span>
+          <span className="scope-picker-sub">{trigger.sub}</span>
         </div>
-        <ChevronDown size={16} className={`location-picker-chevron ${open ? 'open' : ''}`} />
+        <ChevronDown size={16} className={`scope-picker-chevron ${open ? 'open' : ''}`} />
       </button>
 
       {open && (
-        <div className="location-picker-dropdown">
-          <div className="location-picker-dropdown-header">Switch scope</div>
-          {LOCATIONS.map(loc => {
-            const isActive = loc.id === selectedId
-            const overrideCount = Object.keys(LOCATION_OVERRIDES[loc.id] || {}).length
+        <div className="scope-picker-dropdown">
+          <div className="scope-picker-dropdown-header">Switch scope</div>
+
+          {/* Company defaults */}
+          <div
+            className={`scope-picker-option ${isActive('company') ? 'active' : ''}`}
+            onClick={() => { onSelect({ type: 'company' }); setOpen(false) }}
+          >
+            <div className="scope-picker-option-icon company"><Building2 size={16} /></div>
+            <div className="scope-picker-option-text">
+              <span className="scope-picker-option-name">Company defaults</span>
+              <span className="scope-picker-option-sub">All {LOCATIONS.length} locations</span>
+            </div>
+            {isActive('company') && <Check size={16} color="var(--primary)" />}
+          </div>
+
+          {/* Policy groups with nested locations */}
+          {POLICY_GROUPS.map(group => {
+            const groupLocs = group.locationIds.map(id => LOCATIONS.find(l => l.id === id)).filter(Boolean)
+            const isGroupActive = isActive('group', group.id)
+            // Is any child location active?
+            const hasActiveChild = groupLocs.some(l => isActive('location', l.id))
+
             return (
-              <div
-                key={loc.id}
-                className={`location-picker-option ${isActive ? 'active' : ''}`}
-                onClick={() => { onSelect(loc.id); setOpen(false) }}
-              >
-                <div className={`location-picker-option-icon ${loc.id === 'all' ? 'company' : 'location'}`}>
-                  <loc.icon size={16} />
+              <div key={group.id} className={`scope-picker-group ${isGroupActive || hasActiveChild ? 'has-active' : ''}`}>
+                {/* Group header */}
+                <div
+                  className={`scope-picker-option scope-picker-group-header ${isGroupActive ? 'active' : ''}`}
+                  onClick={() => { onSelect({ type: 'group', id: group.id }); setOpen(false) }}
+                >
+                  <div className="scope-picker-option-icon group"><FileText size={16} /></div>
+                  <div className="scope-picker-option-text">
+                    <span className="scope-picker-option-name">{group.name}</span>
+                    <span className="scope-picker-option-sub">{group.subtitle}</span>
+                  </div>
+                  {isGroupActive && <Check size={16} color="var(--primary)" />}
                 </div>
-                <div className="location-picker-option-text">
-                  <span className="location-picker-option-name">{loc.name}</span>
-                  <span className="location-picker-option-sub">{loc.subtitle}</span>
+
+                {/* Nested child locations */}
+                <div className="scope-picker-children">
+                  {groupLocs.map(loc => {
+                    const overrideCount = Object.keys(loc.overrides || {}).length
+                    return (
+                      <div
+                        key={loc.id}
+                        className={`scope-picker-option scope-picker-child ${isActive('location', loc.id) ? 'active' : ''}`}
+                        onClick={() => { onSelect({ type: 'location', id: loc.id }); setOpen(false) }}
+                      >
+                        <div className="scope-picker-child-dot" />
+                        <div className="scope-picker-option-text">
+                          <span className="scope-picker-option-name">{loc.name}</span>
+                          <span className="scope-picker-option-sub">{loc.subtitle}</span>
+                        </div>
+                        {overrideCount > 0 && (
+                          <span className="scope-picker-override-badge">{overrideCount}</span>
+                        )}
+                        {isActive('location', loc.id) && <Check size={16} color="var(--primary)" />}
+                      </div>
+                    )
+                  })}
                 </div>
-                {loc.id !== 'all' && overrideCount > 0 && (
-                  <span className="location-picker-override-count">{overrideCount} override{overrideCount !== 1 ? 's' : ''}</span>
-                )}
-                {isActive && <Check size={16} color="var(--primary)" />}
               </div>
             )
           })}
@@ -275,6 +556,7 @@ function LocationPicker({ selectedId, onSelect }) {
     </div>
   )
 }
+
 
 // ============================================================
 // SETTINGS NAV (restructured IA + section dividers)
@@ -308,35 +590,60 @@ const NAV = [
       { id: 'shared_device', label: 'Shared device' },
     ]
   },
+  {
+    title: 'Reference', category: 'reference', items: [
+      { id: 'component_library', label: 'Component library' },
+    ]
+  },
 ]
 
-function SettingsNav({ category, item, isCompliant, hasBreakRules, hasOvertimeConfig, onNav }) {
+function SettingsNav({ category, item, isCompliant, hasBreakRules, hasOvertimeConfig, onNav, onBack, selectedScope, onSelectScope }) {
   return (
     <nav className="settings-nav">
-      {NAV.map((section, si) => {
-        const cat = section.category
-        return (
-          <div key={si} className="settings-nav-group">
-            <div className="settings-nav-section-title">{section.title}</div>
-            {section.items.map((navItem) => {
-              const showDot = navItem.complianceKey && (
-                (navItem.complianceKey === 'breaks' && !hasBreakRules) ||
-                (navItem.complianceKey === 'overtime' && !hasOvertimeConfig)
-              )
-              return (
-                <div
-                  key={navItem.id}
-                  className={`settings-nav-item ${category === cat && item === navItem.id ? 'active' : ''}`}
-                  onClick={() => onNav(cat, navItem.id)}
-                >
-                  {showDot && <span className="settings-nav-dot error" />}
-                  <span>{navItem.label}</span>
-                </div>
-              )
-            })}
-          </div>
-        )
-      })}
+      {/* Back header */}
+      <div className="settings-nav-header">
+        <button className="settings-nav-back" onClick={onBack}>
+          <ChevronLeft size={18} />
+          <span>Back</span>
+        </button>
+        <div className="settings-nav-title">
+          <Settings size={16} />
+          <span>Settings</span>
+        </div>
+      </div>
+
+      {/* Scope picker in sidebar */}
+      <div className="settings-nav-scope">
+        <ScopePicker selectedScope={selectedScope} onSelect={onSelectScope} />
+      </div>
+
+      {/* Nav sections */}
+      <div className="settings-nav-sections">
+        {NAV.map((section, si) => {
+          const cat = section.category
+          return (
+            <div key={si} className="settings-nav-group">
+              <div className="settings-nav-section-title">{section.title}</div>
+              {section.items.map((navItem) => {
+                const showDot = navItem.complianceKey && (
+                  (navItem.complianceKey === 'breaks' && !hasBreakRules) ||
+                  (navItem.complianceKey === 'overtime' && !hasOvertimeConfig)
+                )
+                return (
+                  <div
+                    key={navItem.id}
+                    className={`settings-nav-item ${category === cat && item === navItem.id ? 'active' : ''}`}
+                    onClick={() => onNav(cat, navItem.id)}
+                  >
+                    {showDot && <span className="settings-nav-dot error" />}
+                    <span>{navItem.label}</span>
+                  </div>
+                )
+              })}
+            </div>
+          )
+        })}
+      </div>
     </nav>
   )
 }
@@ -480,22 +787,25 @@ function WizardPreviewCard({ title, details }) {
 // CONTENT ROUTER
 // ============================================================
 
-function ContentRouter({ category, item, isCompanyScope, selectedLocation, overrides, hasBreakRules, hasOvertimeConfig, onApplyBreaks, onApplyOvertime }) {
-  const scope = { isCompanyScope, selectedLocation, overrides }
+function ContentRouter({ category, item, scopeContext, hasBreakRules, hasOvertimeConfig, onApplyBreaks, onApplyOvertime }) {
+  const sc = scopeContext
   if (category === 'scheduling') {
-    if (item === 'breaks') return <BreaksPage hasBreakRules={hasBreakRules} onApply={onApplyBreaks} {...scope} />
-    if (item === 'overtime') return <OvertimePage hasOvertimeConfig={hasOvertimeConfig} onApply={onApplyOvertime} {...scope} />
-    if (item === 'scheduling_hours') return <SchedulingHoursPage {...scope} />
-    if (item === 'shifts_and_flags') return <ShiftsAndFlagsPage {...scope} />
+    if (item === 'breaks') return <BreaksPage hasBreakRules={hasBreakRules} onApply={onApplyBreaks} scopeContext={sc} />
+    if (item === 'overtime') return <OvertimePage hasOvertimeConfig={hasOvertimeConfig} onApply={onApplyOvertime} scopeContext={sc} />
+    if (item === 'scheduling_hours') return <SchedulingHoursPage scopeContext={sc} />
+    if (item === 'shifts_and_flags') return <ShiftsAndFlagsPage scopeContext={sc} />
   }
   if (category === 'time_clock') {
-    if (item === 'shift_enforcement') return <ShiftEnforcementPage {...scope} />
-    if (item === 'clock_settings') return <ClockSettingsPage {...scope} />
-    if (item === 'shared_device') return <SharedDevicePage />
+    if (item === 'shift_enforcement') return <ShiftEnforcementPage scopeContext={sc} />
+    if (item === 'clock_settings') return <ClockSettingsPage scopeContext={sc} />
+    if (item === 'shared_device') return <SharedDevicePage scopeContext={sc} />
   }
   if (category === 'payroll') {
-    if (item === 'pay_schedule') return <PaySchedulePage {...scope} />
+    if (item === 'pay_schedule') return <PaySchedulePage scopeContext={sc} />
     return <PlaceholderPage title="Payroll integration" />
+  }
+  if (category === 'reference') {
+    if (item === 'component_library') return <ComponentLibraryPage />
   }
   return <PlaceholderPage title={item.replace(/_/g, ' ')} />
 }
@@ -526,44 +836,88 @@ function SectionCard({ icon: Icon, title, description, onEdit, badge, children, 
 }
 
 // ============================================================
-// SCOPE STATUS (shows alignment with company defaults)
+// SCOPE STATUS (3-level inheritance: company → group → location)
 // ============================================================
 
-function ScopeStatus({ isCompanyScope, isOverridden, onResetToDefault, selectedLocation, settingLabel }) {
-  const [showModal, setShowModal] = useState(false)
-  const [showTooltip, setShowTooltip] = useState(false)
+function ScopeStatus({ scopeContext, settingKey, settingLabel }) {
+  const { isCompanyScope, isGroupScope, isLocationScope, selectedGroup, selectedLocation, onChangeScope } = scopeContext
 
+  // At company level — you're editing the base, no badge needed
   if (isCompanyScope) return null
 
-  const tooltipText = isOverridden
-    ? `This location has custom ${settingLabel} settings that differ from the company defaults.`
-    : `These ${settingLabel} settings match the company-wide defaults. Changes to company defaults will apply here automatically.`
+  // At group level — show that this is a policy group override
+  if (isGroupScope && selectedGroup) {
+    const isGroupOverride = selectedGroup.overrides?.[settingKey]
+    return (
+      <div className={`scope-badge-inline ${isGroupOverride ? 'group-override' : 'default'}`}>
+        {isGroupOverride ? <FileText size={12} /> : <Building2 size={12} />}
+        <span>{isGroupOverride ? `${selectedGroup.name} policy override` : 'Using company default'}</span>
+      </div>
+    )
+  }
+
+  // At location level — show the full inheritance chain
+  if (isLocationScope && selectedLocation) {
+    const source = resolveSettingSource(selectedLocation.id, settingKey)
+    const group = getGroupForLocation(selectedLocation.id)
+
+    if (source === 'location') {
+      return (
+        <ScopeBadgeWithAlign
+          selectedLocation={selectedLocation}
+          settingLabel={settingLabel}
+          onChangeScope={onChangeScope}
+        />
+      )
+    }
+
+    if (source === 'group' && group) {
+      return (
+        <div className="scope-badge-inline group-inherited">
+          <FileText size={12} />
+          <span>From {group.name} policy</span>
+          <button className="scope-badge-change" onClick={(e) => { e.stopPropagation(); onChangeScope({ type: 'group', id: group.id }) }}>
+            Edit policy
+          </button>
+        </div>
+      )
+    }
+
+    return (
+      <div className="scope-badge-inline default">
+        <Building2 size={12} />
+        <span>Company default</span>
+        <button className="scope-badge-change" onClick={(e) => { e.stopPropagation(); onChangeScope({ type: 'company' }) }}>
+          Edit default
+        </button>
+      </div>
+    )
+  }
+
+  return null
+}
+
+// The "Custom" badge with a Change button that opens the align modal
+function ScopeBadgeWithAlign({ selectedLocation, settingLabel, onChangeScope }) {
+  const [showModal, setShowModal] = useState(false)
 
   return (
     <>
-      <div
-        className={`scope-badge-inline ${isOverridden ? 'customized' : 'default'}`}
-        onMouseEnter={() => setShowTooltip(true)}
-        onMouseLeave={() => setShowTooltip(false)}
-      >
-        {isOverridden ? <MapPin size={12} /> : <Building2 size={12} />}
-        <span>{isOverridden ? `Custom for ${selectedLocation?.name || 'this location'}` : 'Company default'}</span>
-        {isOverridden && (
-          <button className="scope-badge-change" onClick={(e) => { e.stopPropagation(); setShowModal(true) }}>
-            Change
-          </button>
-        )}
-        {showTooltip && (
-          <div className="scope-badge-tooltip">{tooltipText}</div>
-        )}
+      <div className="scope-badge-inline customized">
+        <MapPin size={12} />
+        <span>Custom for {selectedLocation.name}</span>
+        <button className="scope-badge-change" onClick={(e) => { e.stopPropagation(); setShowModal(true) }}>
+          Change
+        </button>
       </div>
 
       {showModal && (
         <AlignSettingsModal
-          locationName={selectedLocation?.name}
+          locationName={selectedLocation.name}
+          locationId={selectedLocation.id}
           settingLabel={settingLabel}
-          onApply={(sourceId) => {
-            onResetToDefault(sourceId)
+          onApply={(scope) => {
+            onChangeScope(scope)
             setShowModal(false)
           }}
           onClose={() => setShowModal(false)}
@@ -574,18 +928,34 @@ function ScopeStatus({ isCompanyScope, isOverridden, onResetToDefault, selectedL
 }
 
 // ============================================================
-// ALIGN SETTINGS MODAL
+// ALIGN SETTINGS MODAL (3-level: company, groups, locations)
 // ============================================================
 
-function AlignSettingsModal({ locationName, settingLabel, onApply, onClose }) {
-  const [selectedSource, setSelectedSource] = useState('company')
+function AlignSettingsModal({ locationName, locationId, settingLabel, onApply, onClose }) {
+  const [selectedSource, setSelectedSource] = useState(null)
 
+  // Build source options: company default, each policy group, each location (except self)
   const sources = [
-    { id: 'company', name: 'Company default', subtitle: 'Reset to your company-wide settings', icon: Building2, iconClass: 'company' },
-    ...LOCATIONS.filter(l => l.id !== 'all').map(l => ({
-      id: l.id, name: l.name, subtitle: l.subtitle, icon: MapPin, iconClass: 'location'
+    { type: 'company', name: 'Company default', subtitle: 'Use the global company-wide settings', icon: Building2, iconClass: 'company' },
+    ...POLICY_GROUPS.map(g => ({
+      type: 'group', id: g.id, name: g.name + ' policy', subtitle: g.subtitle, icon: FileText, iconClass: 'group'
+    })),
+    ...LOCATIONS.filter(l => l.id !== locationId).map(l => ({
+      type: 'location', id: l.id, name: l.name, subtitle: l.subtitle, icon: MapPin, iconClass: 'location'
     })),
   ]
+
+  const isSelected = (source) => {
+    if (!selectedSource) return false
+    return selectedSource.type === source.type && selectedSource.id === source.id
+  }
+
+  const handleApply = () => {
+    if (!selectedSource) return
+    if (selectedSource.type === 'company') onApply({ type: 'company' })
+    else if (selectedSource.type === 'group') onApply({ type: 'group', id: selectedSource.id })
+    else onApply({ type: 'location', id: selectedSource.id })
+  }
 
   return (
     <div className="dialog-overlay" onClick={onClose}>
@@ -594,36 +964,46 @@ function AlignSettingsModal({ locationName, settingLabel, onApply, onClose }) {
           <div>
             <h3>Change {settingLabel || 'settings'} source</h3>
             <p className="align-modal-subtitle">
-              Choose which settings <strong>{locationName}</strong> should use for this page.
+              Choose which settings <strong>{locationName}</strong> should inherit for this page.
             </p>
           </div>
           <button className="align-modal-close" onClick={onClose}><X size={18} /></button>
         </div>
 
         <div className="align-modal-options">
-          {sources.map(source => (
-            <label
-              key={source.id}
-              className={`align-modal-option ${selectedSource === source.id ? 'selected' : ''}`}
-              onClick={() => setSelectedSource(source.id)}
-            >
-              <div className={`align-modal-option-icon ${source.iconClass}`}>
-                <source.icon size={16} />
+          {sources.map((source, i) => {
+            const key = source.type + (source.id || '')
+            const active = isSelected(source)
+            // Add section dividers
+            const showGroupDivider = i === 1
+            const showLocationDivider = source.type === 'location' && sources[i - 1]?.type !== 'location'
+            return (
+              <div key={key}>
+                {showGroupDivider && <div className="align-modal-divider">Policy groups</div>}
+                {showLocationDivider && <div className="align-modal-divider">Copy from location</div>}
+                <div
+                  className={`align-modal-option ${active ? 'selected' : ''}`}
+                  onClick={() => setSelectedSource(source)}
+                >
+                  <div className={`align-modal-option-icon ${source.iconClass}`}>
+                    <source.icon size={16} />
+                  </div>
+                  <div className="align-modal-option-text">
+                    <span className="align-modal-option-name">{source.name}</span>
+                    <span className="align-modal-option-sub">{source.subtitle}</span>
+                  </div>
+                  <div className={`align-modal-radio ${active ? 'checked' : ''}`}>
+                    {active && <div className="align-modal-radio-dot" />}
+                  </div>
+                </div>
               </div>
-              <div className="align-modal-option-text">
-                <span className="align-modal-option-name">{source.name}</span>
-                <span className="align-modal-option-sub">{source.subtitle}</span>
-              </div>
-              <div className={`align-modal-radio ${selectedSource === source.id ? 'checked' : ''}`}>
-                {selectedSource === source.id && <div className="align-modal-radio-dot" />}
-              </div>
-            </label>
-          ))}
+            )
+          })}
         </div>
 
         <div className="align-modal-footer">
           <button className="btn-secondary" onClick={onClose}>Cancel</button>
-          <button className="btn-primary" onClick={() => onApply(selectedSource)}>
+          <button className="btn-primary" disabled={!selectedSource} onClick={handleApply}>
             Apply settings
           </button>
         </div>
@@ -728,8 +1108,8 @@ const DEFAULT_BREAK_RULES = [
   { id: 2, name: 'Rest Break', roles: [], type: 'Paid', shiftDuration: '4', breakDuration: '10', earliest: '3', latest: '4.5', required: true, waivable: false, allowEarlyEnd: true, sendReminder: true, reminderMins: '5' },
 ]
 
-function BreaksPage({ hasBreakRules, onApply, isCompanyScope, selectedLocation, overrides }) {
-  const [isOverridden, setIsOverridden] = useState(overrides?.breaks || false)
+function BreaksPage({ hasBreakRules, onApply, scopeContext }) {
+  const { markDirty } = scopeContext
   const [rules, setRules] = useState(hasBreakRules ? DEFAULT_BREAK_RULES : [])
   const [editingRule, setEditingRule] = useState(null)
   const [wasEverCompliant, setWasEverCompliant] = useState(hasBreakRules)
@@ -738,6 +1118,7 @@ function BreaksPage({ hasBreakRules, onApply, isCompanyScope, selectedLocation, 
     onApply()
     setRules(DEFAULT_BREAK_RULES)
     setWasEverCompliant(true)
+    markDirty()
   }
 
   const handleAddNew = () => {
@@ -753,11 +1134,13 @@ function BreaksPage({ hasBreakRules, onApply, isCompanyScope, selectedLocation, 
       setRules(prev => [...prev, { ...rule, id: Date.now() }])
     }
     setEditingRule(null)
+    markDirty()
   }
 
   const handleDelete = (ruleId) => {
     setRules(prev => prev.filter(r => r.id !== ruleId))
     setEditingRule(null)
+    markDirty()
   }
 
   if (editingRule !== null) {
@@ -788,13 +1171,7 @@ function BreaksPage({ hasBreakRules, onApply, isCompanyScope, selectedLocation, 
           <h1 className="page-title">Breaks</h1>
           <p className="page-subtitle">Configure required meal and rest breaks</p>
         </div>
-        <ScopeStatus
-          isCompanyScope={isCompanyScope}
-          isOverridden={isOverridden}
-          selectedLocation={selectedLocation}
-          settingLabel="break rules"
-          onResetToDefault={() => setIsOverridden(false)}
-        />
+        <ScopeStatus scopeContext={scopeContext} settingKey="breaks" settingLabel="break rules" />
       </div>
 
       <ComplianceModule
@@ -834,47 +1211,39 @@ function BreaksPage({ hasBreakRules, onApply, isCompanyScope, selectedLocation, 
 function BreakRuleRow({ rule, onClick }) {
   const { name, roles, type, shiftDuration, breakDuration, earliest, latest, required, waivable, allowEarlyEnd, sendReminder, reminderMins } = rule
 
-  const tags = [
-    { label: required ? 'Required' : 'Optional', on: required },
-    { label: waivable ? 'Waivable' : 'Not waivable', on: waivable },
-    { label: allowEarlyEnd ? 'Can end early' : 'Must complete', on: !allowEarlyEnd },
-    { label: sendReminder ? `Reminder at ${reminderMins} min` : 'No reminder', on: sendReminder },
-  ]
+  // Only surface active/notable modifiers — silence is the default
+  const modifiers = []
+  if (waivable) modifiers.push('Waivable')
+  if (allowEarlyEnd) modifiers.push('Can end early')
+  if (sendReminder) modifiers.push(`Reminder ${reminderMins} min before`)
+
+  const roleLabel = !roles || roles.length === 0
+    ? 'All roles'
+    : roles.length === 1 ? roles[0] : `${roles.length} roles`
 
   return (
     <div className="break-card" onClick={onClick}>
-      <div className="break-card-top">
-        <div className="break-card-title">
-          <span className="break-card-name">{name}</span>
-          <span className={`mini-badge ${type === 'Paid' ? 'paid' : 'unpaid'}`}>{type}</span>
+      <div className="break-card-header">
+        <div className="break-card-left">
+          <div className="break-card-title-row">
+            <span className="break-card-name">{name}</span>
+            <span className={`break-badge ${type === 'Paid' ? 'paid' : 'unpaid'}`}>{type}</span>
+            <span className={`break-badge ${required ? 'required' : 'optional'}`}>{required ? 'Required' : 'Optional'}</span>
+          </div>
+          <p className="break-card-summary">
+            {breakDuration} min break after {shiftDuration}+ hr shifts · Take between {earliest}–{latest} hrs in · {roleLabel}
+          </p>
         </div>
-        <ChevronRight size={16} color="var(--text-secondary)" />
+        <ChevronRight size={16} className="break-card-chevron" />
       </div>
 
-      <div className="break-card-details">
-        <div className="break-card-detail">
-          <Clock size={13} />
-          <span>{breakDuration} min break</span>
+      {modifiers.length > 0 && (
+        <div className="break-card-modifiers">
+          {modifiers.map(m => (
+            <span key={m} className="break-modifier">{m}</span>
+          ))}
         </div>
-        <div className="break-card-detail">
-          <Timer size={13} />
-          <span>After {shiftDuration} hr shift</span>
-        </div>
-        <div className="break-card-detail">
-          <ArrowRight size={13} />
-          <span>Window: {earliest}–{latest} hrs</span>
-        </div>
-        <div className="break-card-detail">
-          <Users size={13} />
-          <span>{!roles || roles.length === 0 ? 'All roles' : roles.length === 1 ? roles[0] : `${roles.length} roles`}</span>
-        </div>
-      </div>
-
-      <div className="break-card-tags">
-        {tags.map(tag => (
-          <span key={tag.label} className={`break-card-tag ${tag.on ? 'on' : 'off'}`}>{tag.label}</span>
-        ))}
-      </div>
+      )}
     </div>
   )
 }
@@ -1029,9 +1398,18 @@ function BreakRuleEditor({ rule, onSave, onDelete, onBack }) {
   const isNew = !rule.id
   const canSave = name.trim().length > 0
 
+  // Auto-apply changes when navigating back
+  const handleBack = () => {
+    if (canSave) {
+      onSave({ ...rule, name, roles, type, shiftDuration, breakDuration, earliest, latest, required, waivable, allowEarlyEnd, sendReminder, reminderMins })
+    } else {
+      onBack()
+    }
+  }
+
   return (
     <div className="content-inner">
-      <button className="back-link" onClick={onBack}>
+      <button className="back-link" onClick={handleBack}>
         <ChevronLeft size={16} /> Back to break rules
       </button>
 
@@ -1039,12 +1417,6 @@ function BreakRuleEditor({ rule, onSave, onDelete, onBack }) {
         <div>
           <h1 className="page-title">{isNew ? 'New Break Rule' : 'Edit Break Rule'}</h1>
           <p className="page-subtitle">{isNew ? 'Create a new break rule for this location' : `Editing "${rule.name}"`}</p>
-        </div>
-        <div className="page-header-actions">
-          <button className="btn-secondary" onClick={onBack}>Cancel</button>
-          <button className="btn-primary" disabled={!canSave} onClick={() => onSave({ ...rule, name, roles, type, shiftDuration, breakDuration, earliest, latest, required, waivable, allowEarlyEnd, sendReminder, reminderMins })}>
-            {isNew ? 'Add rule' : 'Save changes'}
-          </button>
         </div>
       </div>
 
@@ -1101,32 +1473,32 @@ function BreakRuleEditor({ rule, onSave, onDelete, onBack }) {
         {/* Toggles — compact list */}
         <div className="bre-toggles">
           <div className="bre-toggle-item" onClick={() => setRequired(!required)}>
-            <div className={`setting-toggle ${required ? 'on' : ''}`}><div className="setting-toggle-thumb" /></div>
             <div className="bre-toggle-content">
               <span className="bre-toggle-label">Required</span>
               <span className="bre-toggle-hint">{required ? 'When on, skipping this break flags the shift.' : 'When off, this break is optional.'}</span>
             </div>
+            <div className={`setting-toggle ${required ? 'on' : ''}`}><div className="setting-toggle-thumb" /></div>
           </div>
           <div className="bre-toggle-item" onClick={() => setWaivable(!waivable)}>
-            <div className={`setting-toggle ${waivable ? 'on' : ''}`}><div className="setting-toggle-thumb" /></div>
             <div className="bre-toggle-content">
               <span className="bre-toggle-label">Waivable</span>
               <span className="bre-toggle-hint">{waivable ? 'When on, employees can waive this break.' : 'When off, this break cannot be waived.'}</span>
             </div>
+            <div className={`setting-toggle ${waivable ? 'on' : ''}`}><div className="setting-toggle-thumb" /></div>
           </div>
           <div className="bre-toggle-item" onClick={() => setAllowEarlyEnd(!allowEarlyEnd)}>
-            <div className={`setting-toggle ${allowEarlyEnd ? 'on' : ''}`}><div className="setting-toggle-thumb" /></div>
             <div className="bre-toggle-content">
               <span className="bre-toggle-label">Allowed to end early</span>
               <span className="bre-toggle-hint">{allowEarlyEnd ? 'When on, workers can end this break before the full duration.' : 'When off, workers must complete the full break duration.'}</span>
             </div>
+            <div className={`setting-toggle ${allowEarlyEnd ? 'on' : ''}`}><div className="setting-toggle-thumb" /></div>
           </div>
           <div className="bre-toggle-item" onClick={() => setSendReminder(!sendReminder)}>
-            <div className={`setting-toggle ${sendReminder ? 'on' : ''}`}><div className="setting-toggle-thumb" /></div>
             <div className="bre-toggle-content">
               <span className="bre-toggle-label">Send reminder</span>
               <span className="bre-toggle-hint">{sendReminder ? 'When on, workers are notified before it\'s time for this break.' : 'When off, no reminders are sent.'}</span>
             </div>
+            <div className={`setting-toggle ${sendReminder ? 'on' : ''}`}><div className="setting-toggle-thumb" /></div>
           </div>
           {sendReminder && (
             <div className="bre-child-setting">
@@ -1166,8 +1538,8 @@ function BreakRuleEditor({ rule, onSave, onDelete, onBack }) {
 // OVERTIME PAGE (consolidated, same pattern)
 // ============================================================
 
-function OvertimePage({ hasOvertimeConfig, onApply, isCompanyScope, selectedLocation, overrides }) {
-  const [isOverridden, setIsOverridden] = useState(overrides?.overtime || false)
+function OvertimePage({ hasOvertimeConfig, onApply, scopeContext }) {
+  const { markDirty } = scopeContext
   const [configured, setConfigured] = useState(hasOvertimeConfig)
   const [weeklyHrs, setWeeklyHrs] = useState('40')
   const [dailyHrs, setDailyHrs] = useState('0')
@@ -1179,6 +1551,7 @@ function OvertimePage({ hasOvertimeConfig, onApply, isCompanyScope, selectedLoca
     setWeeklyHrs('40')
     setDailyHrs('8')
     setDoubleHrs('12')
+    markDirty()
   }
 
   const hasWeekly = parseInt(weeklyHrs) > 0
@@ -1194,13 +1567,7 @@ function OvertimePage({ hasOvertimeConfig, onApply, isCompanyScope, selectedLoca
           <h1 className="page-title">Overtime</h1>
           <p className="page-subtitle">Set overtime thresholds for calculating pay</p>
         </div>
-        <ScopeStatus
-          isCompanyScope={isCompanyScope}
-          isOverridden={isOverridden}
-          selectedLocation={selectedLocation}
-          settingLabel="overtime"
-          onResetToDefault={() => setIsOverridden(false)}
-        />
+        <ScopeStatus scopeContext={scopeContext} settingKey="overtime" settingLabel="overtime" />
       </div>
 
       <ComplianceModule
@@ -1218,9 +1585,9 @@ function OvertimePage({ hasOvertimeConfig, onApply, isCompanyScope, selectedLoca
       />
 
       <SettingsSection title="Thresholds" description="Set to 0 hours to disable a threshold.">
-        <SettingValueRow label="Weekly overtime" description="Hours per week before 1.5x overtime" value={`${weeklyHrs} hrs`} onChange={v => { setWeeklyHrs(v.replace(/[^0-9]/g, '') || '0'); setConfigured(true) }} />
-        <SettingValueRow label="Daily overtime" description="Hours per day before 1.5x overtime" value={`${dailyHrs} hrs`} onChange={v => { setDailyHrs(v.replace(/[^0-9]/g, '') || '0'); setConfigured(true) }} />
-        <SettingValueRow label="Daily double overtime" description="Hours per day before 2x overtime" value={`${doubleHrs} hrs`} onChange={v => { setDoubleHrs(v.replace(/[^0-9]/g, '') || '0'); setConfigured(true) }} />
+        <SettingValueRow label="Weekly overtime" description="Hours per week before 1.5x overtime" value={weeklyHrs} suffix="hrs" type="number" onChange={v => { setWeeklyHrs(v || '0'); setConfigured(true); markDirty() }} />
+        <SettingValueRow label="Daily overtime" description="Hours per day before 1.5x overtime" value={dailyHrs} suffix="hrs" type="number" onChange={v => { setDailyHrs(v || '0'); setConfigured(true); markDirty() }} />
+        <SettingValueRow label="Daily double overtime" description="Hours per day before 2x overtime" value={doubleHrs} suffix="hrs" type="number" onChange={v => { setDoubleHrs(v || '0'); setConfigured(true); markDirty() }} />
       </SettingsSection>
     </div>
   )
@@ -1230,8 +1597,8 @@ function OvertimePage({ hasOvertimeConfig, onApply, isCompanyScope, selectedLoca
 // SHIFT ENFORCEMENT PAGE
 // ============================================================
 
-function ShiftEnforcementPage({ isCompanyScope, selectedLocation, overrides }) {
-  const [isOverridden, setIsOverridden] = useState(overrides?.earlyClockIn || false)
+function ShiftEnforcementPage({ scopeContext }) {
+  const { markDirty } = scopeContext
   const [earlyClockIn, setEarlyClockIn] = useState(false)
   const [earlyMins, setEarlyMins] = useState('')
   const [geofence, setGeofence] = useState(true)
@@ -1243,13 +1610,7 @@ function ShiftEnforcementPage({ isCompanyScope, selectedLocation, overrides }) {
           <h1 className="page-title">Shift Enforcement</h1>
           <p className="page-subtitle">Control when and where workers can clock in</p>
         </div>
-        <ScopeStatus
-          isCompanyScope={isCompanyScope}
-          isOverridden={isOverridden}
-          selectedLocation={selectedLocation}
-          settingLabel="shift enforcement"
-          onResetToDefault={() => setIsOverridden(false)}
-        />
+        <ScopeStatus scopeContext={scopeContext} settingKey="earlyClockIn" settingLabel="shift enforcement" />
       </div>
 
       <SettingsSection title="Early clock-in" description="Control whether workers can clock in before their shift starts.">
@@ -1258,15 +1619,18 @@ function ShiftEnforcementPage({ isCompanyScope, selectedLocation, overrides }) {
           onDescription="When on, workers cannot clock in before their scheduled shift."
           offDescription="When off, workers can clock in at any time."
           enabled={earlyClockIn}
-          onToggle={() => setEarlyClockIn(!earlyClockIn)}
+          onToggle={() => { setEarlyClockIn(!earlyClockIn); markDirty() }}
         />
         {earlyClockIn && (
           <SettingChildRow>
             <SettingValueRow
               label="Buffer time"
               description="How many minutes before their shift workers can clock in"
-              value={earlyMins ? `${earlyMins} mins` : 'Not set'}
-              onChange={v => setEarlyMins(v.replace(/[^0-9]/g, ''))}
+              value={earlyMins}
+              suffix="mins"
+              type="number"
+              placeholder="Not set"
+              onChange={v => { setEarlyMins(v); markDirty() }}
             />
           </SettingChildRow>
         )}
@@ -1278,7 +1642,7 @@ function ShiftEnforcementPage({ isCompanyScope, selectedLocation, overrides }) {
           onDescription="When on, workers must be within range of a location to clock in."
           offDescription="When off, workers can clock in from anywhere."
           enabled={geofence}
-          onToggle={() => setGeofence(!geofence)}
+          onToggle={() => { setGeofence(!geofence); markDirty() }}
         />
         {geofence && (
           <SettingChildRow>
@@ -1295,25 +1659,28 @@ function ShiftEnforcementPage({ isCompanyScope, selectedLocation, overrides }) {
 // ============================================================
 
 const DEFAULT_FLAGS = [
-  { id: 'far_location', name: 'Clock in/out location too far from the store', enabled: true, conditionLabel: 'Distance >', conditionValue: '500', conditionUnit: 'feet' },
-  { id: 'long_shift', name: 'Long shift', enabled: true, conditionLabel: 'Duration \u2265', conditionValue: '9', conditionUnit: 'hrs' },
-  { id: 'clock_in_location_missing', name: 'Clock in location missing', enabled: true, conditionLabel: null, conditionValue: null, conditionUnit: null },
-  { id: 'clock_out_location_missing', name: 'Clock out location missing', enabled: true, conditionLabel: null, conditionValue: null, conditionUnit: null },
-  { id: 'break_end_missing', name: 'Break end missing', enabled: true, conditionLabel: null, conditionValue: null, conditionUnit: null },
-  { id: 'clock_out_missing', name: 'Clock out missing', enabled: false, conditionLabel: null, conditionValue: null, conditionUnit: null },
+  { id: 'far_location', name: 'Clock in/out too far from work location', description: 'Flag when a worker clocks in or out beyond the allowed distance from the store.', enabled: true, conditionLabel: 'Flag when distance exceeds', conditionValue: '500', conditionUnit: 'feet' },
+  { id: 'long_shift', name: 'Shift exceeds maximum duration', description: 'Flag shifts that run longer than the allowed threshold.', enabled: true, conditionLabel: 'Flag when shift exceeds', conditionValue: '9', conditionUnit: 'hrs' },
+  { id: 'clock_in_location_missing', name: 'Clock-in location not captured', description: 'Flag when GPS or location data is unavailable at clock-in.', enabled: true, conditionLabel: null, conditionValue: null, conditionUnit: null },
+  { id: 'clock_out_location_missing', name: 'Clock-out location not captured', description: 'Flag when GPS or location data is unavailable at clock-out.', enabled: true, conditionLabel: null, conditionValue: null, conditionUnit: null },
+  { id: 'break_end_missing', name: 'Break not ended', description: 'Flag when a worker starts a break but never records ending it.', enabled: true, conditionLabel: null, conditionValue: null, conditionUnit: null },
+  { id: 'clock_out_missing', name: 'Missing clock-out', description: 'Flag when a worker clocks in but never clocks out.', enabled: false, conditionLabel: null, conditionValue: null, conditionUnit: null },
 ]
 
-function ShiftsAndFlagsPage({ isCompanyScope, selectedLocation, overrides }) {
+function ShiftsAndFlagsPage({ scopeContext }) {
+  const { markDirty } = scopeContext
   const [openShifts, setOpenShifts] = useState(false)
   const [visibility, setVisibility] = useState('roles')
   const [flags, setFlags] = useState(DEFAULT_FLAGS)
 
   const toggleFlag = (id) => {
     setFlags(flags.map(f => f.id === id ? { ...f, enabled: !f.enabled } : f))
+    markDirty()
   }
 
   const updateFlagCondition = (id, value) => {
     setFlags(flags.map(f => f.id === id ? { ...f, conditionValue: value } : f))
+    markDirty()
   }
 
   return (
@@ -1323,13 +1690,7 @@ function ShiftsAndFlagsPage({ isCompanyScope, selectedLocation, overrides }) {
           <h1 className="page-title">Shifts & Flags</h1>
           <p className="page-subtitle">Configure open shifts and compliance alerts</p>
         </div>
-        <ScopeStatus
-          isCompanyScope={isCompanyScope}
-          isOverridden={false}
-          selectedLocation={selectedLocation}
-          settingLabel="shifts & flags"
-          onResetToDefault={() => {}}
-        />
+        <ScopeStatus scopeContext={scopeContext} settingKey="shiftsFlags" settingLabel="shifts & flags" />
       </div>
 
       <SettingsSection title="Open shifts" description="Automatically post flagged shifts for other workers to pick up.">
@@ -1338,38 +1699,27 @@ function ShiftsAndFlagsPage({ isCompanyScope, selectedLocation, overrides }) {
           onDescription="When on, flagged shifts are automatically posted to Open Shifts."
           offDescription="When off, flagged shifts must be manually posted."
           enabled={openShifts}
-          onToggle={() => setOpenShifts(!openShifts)}
+          onToggle={() => { setOpenShifts(!openShifts); markDirty() }}
         />
         {openShifts && (
           <SettingChildRow>
-            <div className="ss-row">
-              <div className="ss-row-text">
-                <div className="ss-row-label">Visibility of Open Shifts</div>
-                <div className="ss-row-desc">Which shifts a team member can see in their Open Shifts list</div>
-              </div>
-            </div>
-            <RadioRow
-              selected={visibility === 'roles'}
-              onSelect={() => setVisibility('roles')}
-              label="Only shifts for roles they've worked before"
-            />
-            <RadioRow
-              selected={visibility === 'any'}
-              onSelect={() => setVisibility('any')}
-              label="Any shift at this location"
+            <SettingValueRow
+              label="Visibility of Open Shifts"
+              description="Which shifts a team member can see in their Open Shifts list"
+              value={visibility === 'roles' ? 'Matching roles only' : 'Any shift at this location'}
+              onChange={v => { setVisibility(v === 'Matching roles only' ? 'roles' : 'any'); markDirty() }}
+              options={['Matching roles only', 'Any shift at this location']}
             />
           </SettingChildRow>
         )}
       </SettingsSection>
 
-      <SettingsSection title="Shift flags" description="Flags highlight shifts that may need attention. Enable or disable each flag and configure their conditions.">
+      <SettingsSection title="Shift flags" description="Flags highlight shifts that may need manager attention. Toggle each flag on or off and adjust thresholds where applicable.">
         {flags.map(flag => (
           <div key={flag.id} className="flag-row">
-            <div className={`setting-toggle ${flag.enabled ? 'on' : ''}`} onClick={() => toggleFlag(flag.id)}>
-              <div className="setting-toggle-thumb" />
-            </div>
             <div className={`flag-row-content ${!flag.enabled ? 'disabled' : ''}`}>
               <div className="flag-row-name">{flag.name}</div>
+              <div className="flag-row-desc">{flag.description}</div>
               {flag.conditionLabel && (
                 <div className="flag-row-condition">
                   <span className="flag-row-condition-label">{flag.conditionLabel}</span>
@@ -1387,11 +1737,9 @@ function ShiftsAndFlagsPage({ isCompanyScope, selectedLocation, overrides }) {
                   <span className="flag-row-condition-unit">{flag.conditionUnit}</span>
                 </div>
               )}
-              {!flag.conditionLabel && (
-                <div className="flag-row-condition">
-                  <span className="flag-row-condition-label flag-row-no-condition">No configurable condition</span>
-                </div>
-              )}
+            </div>
+            <div className={`setting-toggle ${flag.enabled ? 'on' : ''}`} onClick={() => toggleFlag(flag.id)}>
+              <div className="setting-toggle-thumb" />
             </div>
           </div>
         ))}
@@ -1400,22 +1748,14 @@ function ShiftsAndFlagsPage({ isCompanyScope, selectedLocation, overrides }) {
   )
 }
 
-function RadioRow({ selected, onSelect, label }) {
-  return (
-    <div className="ss-row clickable" onClick={onSelect}>
-      <div className={`radio-circle ${selected ? 'selected' : ''}`}>
-        {selected && <div className="radio-dot" />}
-      </div>
-      <span className="ss-row-label">{label}</span>
-    </div>
-  )
-}
+
 
 // ============================================================
 // PAY SCHEDULE PAGE (now under Payroll)
 // ============================================================
 
-function PaySchedulePage({ isCompanyScope, selectedLocation, overrides }) {
+function PaySchedulePage({ scopeContext }) {
+  const { markDirty } = scopeContext
   const [frequency, setFrequency] = useState('Bi-weekly')
   const [periodStart, setPeriodStart] = useState('Feb 1, 2026')
   const [startTime, setStartTime] = useState('12:00 AM')
@@ -1427,19 +1767,13 @@ function PaySchedulePage({ isCompanyScope, selectedLocation, overrides }) {
           <h1 className="page-title">Pay Schedule</h1>
           <p className="page-subtitle">Configure pay periods and frequency</p>
         </div>
-        <ScopeStatus
-          isCompanyScope={isCompanyScope}
-          isOverridden={false}
-          selectedLocation={selectedLocation}
-          settingLabel="pay schedule"
-          onResetToDefault={() => {}}
-        />
+        <ScopeStatus scopeContext={scopeContext} settingKey="paySchedule" settingLabel="pay schedule" />
       </div>
 
       <SettingsSection title="Pay period">
-        <SettingValueRow label="Pay frequency" value={frequency} onChange={setFrequency} options={['Weekly', 'Bi-weekly', 'Semi-monthly', 'Monthly']} />
-        <SettingValueRow label="Current period starts" value={periodStart} onChange={setPeriodStart} />
-        <SettingValueRow label="Start time" value={startTime} onChange={setStartTime} options={['12:00 AM', '6:00 AM', '8:00 AM', '12:00 PM']} />
+        <SettingValueRow label="Pay frequency" value={frequency} onChange={v => { setFrequency(v); markDirty() }} options={['Weekly', 'Bi-weekly', 'Semi-monthly', 'Monthly']} />
+        <SettingValueRow label="Current period starts" value={periodStart} onChange={v => { setPeriodStart(v); markDirty() }} />
+        <SettingValueRow label="Start time" value={startTime} onChange={v => { setStartTime(v); markDirty() }} type="time" />
       </SettingsSection>
     </div>
   )
@@ -1449,16 +1783,31 @@ function PaySchedulePage({ isCompanyScope, selectedLocation, overrides }) {
 // HOURS & WORKWEEK PAGE
 // ============================================================
 
-function SchedulingHoursPage({ isCompanyScope, selectedLocation, overrides }) {
+function SchedulingHoursPage({ scopeContext }) {
+  const { markDirty } = scopeContext
   const [workweekStart, setWorkweekStart] = useState('Monday')
   const [sameHours, setSameHours] = useState(true)
   const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
-  const defaultHours = { start: '9:00 AM', end: '5:00 PM' }
+
+  const [sharedStart, setSharedStart] = useState('9:00 AM')
+  const [sharedEnd, setSharedEnd] = useState('5:00 PM')
+
   const [hours, setHours] = useState(
-    Object.fromEntries(DAYS.map(d => [d, d === 'Sat' || d === 'Sun' ? { start: '', end: '' } : { ...defaultHours }]))
+    Object.fromEntries(DAYS.map(d => [d,
+      d === 'Sat' || d === 'Sun'
+        ? { start: '9:00 AM', end: '5:00 PM', closed: true }
+        : { start: '9:00 AM', end: '5:00 PM', closed: false }
+    ]))
   )
 
-  const formatHours = (h) => h.start && h.end ? `${h.start} – ${h.end}` : 'Closed'
+  const updateDay = (day, field, value) => {
+    setHours(prev => ({ ...prev, [day]: { ...prev[day], [field]: value } }))
+    markDirty()
+  }
+  const toggleDay = (day) => {
+    setHours(prev => ({ ...prev, [day]: { ...prev[day], closed: !prev[day].closed } }))
+    markDirty()
+  }
 
   return (
     <div className="content-inner">
@@ -1467,32 +1816,70 @@ function SchedulingHoursPage({ isCompanyScope, selectedLocation, overrides }) {
           <h1 className="page-title">Hours & Workweek</h1>
           <p className="page-subtitle">Business hours and workweek configuration</p>
         </div>
-        <ScopeStatus
-          isCompanyScope={isCompanyScope}
-          isOverridden={false}
-          selectedLocation={selectedLocation}
-          settingLabel="hours & workweek"
-          onResetToDefault={() => {}}
-        />
+        <ScopeStatus scopeContext={scopeContext} settingKey="operatingHours" settingLabel="hours & workweek" />
       </div>
 
-      <SettingsSection title="Scheduling hours" description="We use these hours to guide when shifts can be scheduled. Leave a day blank if no one should be scheduled.">
+      <SettingsSection title="Scheduling hours" description="Hours when shifts can be scheduled. End times past midnight (up to 2:00 AM) are treated as the next day.">
         <SettingToggleRow
           label="Same hours every day"
-          onDescription="When on, all days share the same operating hours."
-          offDescription="When off, each day can have different operating hours."
+          onDescription="All days share the same operating hours."
+          offDescription="Each day can have different hours."
           enabled={sameHours}
-          onToggle={() => setSameHours(!sameHours)}
-          value={sameHours ? `${defaultHours.start} – ${defaultHours.end}` : ''}
+          onToggle={() => { setSameHours(!sameHours); markDirty() }}
         />
-        {!sameHours && DAYS.map(d => (
-          <SettingValueRow key={d} label={d} value={formatHours(hours[d])} />
-        ))}
+
+        {sameHours && (
+          <SettingChildRow>
+            <SettingValueRow label="Opens at" value={sharedStart} onChange={v => { setSharedStart(v); markDirty() }} type="time" />
+            <SettingValueRow label="Closes at" value={sharedEnd} onChange={v => { setSharedEnd(v); markDirty() }} type="time" />
+            {isNextDay(sharedStart, sharedEnd) && (
+              <div className="hours-next-day-note">Closes after midnight (next day)</div>
+            )}
+          </SettingChildRow>
+        )}
+
+        {!sameHours && (
+          <div className="hours-day-list">
+            {DAYS.map(d => (
+              <DayHoursRow
+                key={d}
+                day={d}
+                start={hours[d].start}
+                end={hours[d].end}
+                closed={hours[d].closed}
+                onChangeStart={v => updateDay(d, 'start', v)}
+                onChangeEnd={v => updateDay(d, 'end', v)}
+                onToggle={() => toggleDay(d)}
+              />
+            ))}
+          </div>
+        )}
       </SettingsSection>
 
       <SettingsSection title="Workweek" description="The workweek start day determines when weekly overtime resets.">
-        <SettingValueRow label="Starts on" value={workweekStart} onChange={setWorkweekStart} options={['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']} />
+        <SettingValueRow label="Starts on" value={workweekStart} onChange={v => { setWorkweekStart(v); markDirty() }} options={['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']} />
       </SettingsSection>
+    </div>
+  )
+}
+
+function DayHoursRow({ day, start, end, closed, onChangeStart, onChangeEnd, onToggle }) {
+  return (
+    <div className={`hours-day-row ${closed ? 'closed' : ''}`}>
+      <span className="hours-day-label">{day}</span>
+      {!closed ? (
+        <div className="hours-day-times">
+          <TimePicker value={start} onChange={onChangeStart} />
+          <span className="hours-day-sep">–</span>
+          <TimePicker value={end} onChange={onChangeEnd} />
+          {isNextDay(start, end) && <span className="hours-next-day-badge">+1 day</span>}
+        </div>
+      ) : (
+        <span className="hours-day-closed">Closed</span>
+      )}
+      <div className={`setting-toggle ${!closed ? 'on' : ''}`} onClick={onToggle}>
+        <div className="setting-toggle-thumb" />
+      </div>
     </div>
   )
 }
@@ -1501,8 +1888,8 @@ function SchedulingHoursPage({ isCompanyScope, selectedLocation, overrides }) {
 // CLOCK SETTINGS PAGE (was "Advanced Time Clock" — minus shared device)
 // ============================================================
 
-function ClockSettingsPage({ isCompanyScope, selectedLocation, overrides }) {
-  const [isOverridden, setIsOverridden] = useState(overrides?.timeRounding || false)
+function ClockSettingsPage({ scopeContext }) {
+  const { markDirty } = scopeContext
   const [autoClockOut, setAutoClockOut] = useState(true)
   const [clockOutTime, setClockOutTime] = useState('02:00 AM')
   const [timeRounding, setTimeRounding] = useState(true)
@@ -1515,13 +1902,7 @@ function ClockSettingsPage({ isCompanyScope, selectedLocation, overrides }) {
           <h1 className="page-title">Time Tracking</h1>
           <p className="page-subtitle">Auto clock-out, time rounding, and related settings</p>
         </div>
-        <ScopeStatus
-          isCompanyScope={isCompanyScope}
-          isOverridden={isOverridden}
-          selectedLocation={selectedLocation}
-          settingLabel="time tracking"
-          onResetToDefault={() => setIsOverridden(false)}
-        />
+        <ScopeStatus scopeContext={scopeContext} settingKey="timeRounding" settingLabel="time tracking" />
       </div>
 
       <SettingsSection title="Auto clock-out" description="Automatically clock out workers who forget to clock out.">
@@ -1530,7 +1911,7 @@ function ClockSettingsPage({ isCompanyScope, selectedLocation, overrides }) {
           onDescription="When on, automatically clock out workers at a set time."
           offDescription="When off, workers will not be automatically clocked out."
           enabled={autoClockOut}
-          onToggle={() => setAutoClockOut(!autoClockOut)}
+          onToggle={() => { setAutoClockOut(!autoClockOut); markDirty() }}
         />
         {autoClockOut && (
           <SettingChildRow>
@@ -1538,8 +1919,8 @@ function ClockSettingsPage({ isCompanyScope, selectedLocation, overrides }) {
               label="Clock-out time"
               description="Workers will be clocked out at this time"
               value={clockOutTime}
-              onChange={setClockOutTime}
-              options={['10:00 PM', '11:00 PM', '12:00 AM', '01:00 AM', '02:00 AM', '03:00 AM']}
+              onChange={v => { setClockOutTime(v); markDirty() }}
+              type="time"
             />
           </SettingChildRow>
         )}
@@ -1551,15 +1932,17 @@ function ClockSettingsPage({ isCompanyScope, selectedLocation, overrides }) {
           onDescription="When on, clock in/out times are rounded to the nearest interval."
           offDescription="When off, exact clock in/out times are recorded."
           enabled={timeRounding}
-          onToggle={() => setTimeRounding(!timeRounding)}
+          onToggle={() => { setTimeRounding(!timeRounding); markDirty() }}
         />
         {timeRounding && (
           <SettingChildRow>
             <SettingValueRow
               label="Round to nearest"
               description="Clock in/out times will be rounded to this interval"
-              value={`${roundMins} mins`}
-              onChange={v => setRoundMins(v.replace(/[^0-9]/g, ''))}
+              value={roundMins}
+              suffix="mins"
+              type="number"
+              onChange={v => { setRoundMins(v); markDirty() }}
             />
           </SettingChildRow>
         )}
@@ -1572,8 +1955,11 @@ function ClockSettingsPage({ isCompanyScope, selectedLocation, overrides }) {
 // SHARED DEVICE PAGE (own page now)
 // ============================================================
 
-function SharedDevicePage() {
+function SharedDevicePage({ scopeContext }) {
+  const { markDirty } = scopeContext
   const [biometrics, setBiometrics] = useState(true)
+  const [pin, setPin] = useState('482901')
+  const [pinVisible, setPinVisible] = useState(false)
 
   return (
     <div className="content-inner">
@@ -1585,13 +1971,39 @@ function SharedDevicePage() {
       </div>
 
       <SettingsSection title="Security">
-        <SettingValueRow label="Manager PIN" description="Required to access manager functions" value="••••••" onClick={() => {}} />
+        <div className="pin-row">
+          <div className="pin-row-text">
+            <div className="ss-row-label">Manager PIN</div>
+            <div className="ss-row-desc">Required to access manager functions on shared devices</div>
+          </div>
+          <div className="pin-field-wrapper">
+            <input
+              className="pin-field"
+              type={pinVisible ? 'text' : 'password'}
+              inputMode="numeric"
+              pattern="[0-9]*"
+              maxLength={8}
+              value={pin}
+              readOnly={!pinVisible}
+              onChange={e => { setPin(e.target.value.replace(/[^0-9]/g, '')); markDirty() }}
+              onClick={() => { if (!pinVisible) setPinVisible(true) }}
+            />
+            <button
+              className="pin-eye"
+              type="button"
+              onClick={() => setPinVisible(!pinVisible)}
+              tabIndex={-1}
+            >
+              {pinVisible ? <EyeOff size={16} /> : <Eye size={16} />}
+            </button>
+          </div>
+        </div>
         <SettingToggleRow
           label="Face ID / Biometrics"
           onDescription="When on, workers can clock in using Face ID or biometrics."
           offDescription="When off, workers must use other methods to clock in."
           enabled={biometrics}
-          onToggle={() => setBiometrics(!biometrics)}
+          onToggle={() => { setBiometrics(!biometrics); markDirty() }}
         />
       </SettingsSection>
     </div>
@@ -1601,6 +2013,314 @@ function SharedDevicePage() {
 // ============================================================
 // PLACEHOLDER PAGE
 // ============================================================
+
+// ============================================================
+// COMPONENT LIBRARY — interactive reference for all primitives
+// ============================================================
+
+function ComponentLibraryPage() {
+  // Demo state for interactive examples
+  const [demoToggle1, setDemoToggle1] = useState(true)
+  const [demoToggle2, setDemoToggle2] = useState(false)
+  const [demoText, setDemoText] = useState('Hello world')
+  const [demoNumber, setDemoNumber] = useState('15')
+  const [demoRadio, setDemoRadio] = useState('Bi-weekly')
+  const [demoDropdown, setDemoDropdown] = useState('Monday')
+  const [demoTime, setDemoTime] = useState('9:00 AM')
+  const [demoDayOpen, setDemoDayOpen] = useState(true)
+  const [demoDayStart, setDemoDayStart] = useState('9:00 AM')
+  const [demoDayEnd, setDemoDayEnd] = useState('5:00 PM')
+  const [demoFlag, setDemoFlag] = useState(true)
+  const [demoFlagValue, setDemoFlagValue] = useState('500')
+  const [demoPin, setDemoPin] = useState('482901')
+  const [demoPinVisible, setDemoPinVisible] = useState(false)
+
+  return (
+    <div className="content-inner">
+      <div className="page-header">
+        <div>
+          <h1 className="page-title">Component Library</h1>
+          <p className="page-subtitle">Interactive reference of all standardized settings primitives</p>
+        </div>
+      </div>
+
+      {/* ---- SETTINGS SECTION ---- */}
+      <div className="lib-section">
+        <h2 className="lib-heading">SettingsSection</h2>
+        <p className="lib-note">
+          Card wrapper that groups related setting rows. Accepts an optional <code>title</code> and <code>description</code> header.
+          All setting rows go inside as children.
+        </p>
+        <div className="lib-demo">
+          <SettingsSection title="Example Section" description="This description explains what the section controls.">
+            <div className="ss-row"><div className="ss-row-text"><div className="ss-row-label">Rows go here</div><div className="ss-row-desc">Each row is a child of the section</div></div></div>
+          </SettingsSection>
+        </div>
+      </div>
+
+      {/* ---- TOGGLE ROW ---- */}
+      <div className="lib-section">
+        <h2 className="lib-heading">SettingToggleRow</h2>
+        <p className="lib-note">
+          A row with a label, contextual description, and a right-aligned toggle. The description changes based on the on/off state
+          via <code>onDescription</code> and <code>offDescription</code>. Optional <code>value</code> prop shows a read-only summary when enabled.
+        </p>
+        <div className="lib-demo">
+          <SettingsSection>
+            <SettingToggleRow
+              label="With value summary"
+              onDescription="This toggle is currently enabled."
+              offDescription="This toggle is currently disabled."
+              enabled={demoToggle1}
+              onToggle={() => setDemoToggle1(!demoToggle1)}
+              value={demoToggle1 ? '9:00 AM – 5:00 PM' : ''}
+            />
+            <SettingToggleRow
+              label="Basic toggle"
+              onDescription="Feature is active — workers will be notified."
+              offDescription="Feature is off — no notifications are sent."
+              enabled={demoToggle2}
+              onToggle={() => setDemoToggle2(!demoToggle2)}
+            />
+          </SettingsSection>
+        </div>
+      </div>
+
+      {/* ---- VALUE ROW: TEXT ---- */}
+      <div className="lib-section">
+        <h2 className="lib-heading">SettingValueRow — Text Input</h2>
+        <p className="lib-note">
+          Editable text input. Pass <code>value</code> and <code>onChange</code>. Without <code>onChange</code>, the row is read-only.
+        </p>
+        <div className="lib-demo">
+          <SettingsSection>
+            <SettingValueRow label="Editable text" description="Click the input to change" value={demoText} onChange={setDemoText} />
+            <SettingValueRow label="Read-only" description="No onChange — display only" value="Static value" />
+          </SettingsSection>
+        </div>
+      </div>
+
+      {/* ---- VALUE ROW: NUMBER + SUFFIX ---- */}
+      <div className="lib-section">
+        <h2 className="lib-heading">SettingValueRow — Number with Suffix</h2>
+        <p className="lib-note">
+          Pass <code>type="number"</code> and <code>suffix</code> to render a numeric input with a unit label and native stepper buttons.
+        </p>
+        <div className="lib-demo">
+          <SettingsSection>
+            <SettingValueRow label="Rounding interval" description="Clock times rounded to this value" value={demoNumber} suffix="mins" type="number" onChange={setDemoNumber} />
+          </SettingsSection>
+        </div>
+      </div>
+
+      {/* ---- VALUE ROW: RADIO (SHORT OPTIONS) ---- */}
+      <div className="lib-section">
+        <h2 className="lib-heading">SettingValueRow — Radio Buttons</h2>
+        <p className="lib-note">
+          When <code>options</code> has 5 or fewer items, they render as inline radio buttons.
+        </p>
+        <div className="lib-demo">
+          <SettingsSection>
+            <SettingValueRow label="Pay frequency" value={demoRadio} onChange={setDemoRadio} options={['Weekly', 'Bi-weekly', 'Semi-monthly', 'Monthly']} />
+          </SettingsSection>
+        </div>
+      </div>
+
+      {/* ---- VALUE ROW: DROPDOWN (LONG OPTIONS) ---- */}
+      <div className="lib-section">
+        <h2 className="lib-heading">SettingValueRow — Dropdown</h2>
+        <p className="lib-note">
+          When <code>options</code> has more than 5 items, a native <code>&lt;select&gt;</code> dropdown is used instead.
+        </p>
+        <div className="lib-demo">
+          <SettingsSection>
+            <SettingValueRow label="Starts on" value={demoDropdown} onChange={setDemoDropdown} options={['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']} />
+          </SettingsSection>
+        </div>
+      </div>
+
+      {/* ---- VALUE ROW: TIME ---- */}
+      <div className="lib-section">
+        <h2 className="lib-heading">SettingValueRow — Time Picker</h2>
+        <p className="lib-note">
+          Pass <code>type="time"</code> to render a segmented time picker with separate hour, minute, and AM/PM fields.
+          The AM/PM button toggles on click and responds to <code>a</code> / <code>p</code> keys.
+        </p>
+        <div className="lib-demo">
+          <SettingsSection>
+            <SettingValueRow label="Start time" value={demoTime} onChange={setDemoTime} type="time" />
+          </SettingsSection>
+        </div>
+      </div>
+
+      {/* ---- CHILD ROW ---- */}
+      <div className="lib-section">
+        <h2 className="lib-heading">SettingChildRow</h2>
+        <p className="lib-note">
+          Wraps child settings that depend on a parent toggle. Visually indented to show the dependency relationship.
+          Typically rendered conditionally when the parent toggle is on.
+        </p>
+        <div className="lib-demo">
+          <SettingsSection>
+            <SettingToggleRow
+              label="Parent toggle"
+              onDescription="Child settings are visible below."
+              offDescription="Turn on to see child settings."
+              enabled={demoToggle1}
+              onToggle={() => setDemoToggle1(!demoToggle1)}
+            />
+            {demoToggle1 && (
+              <SettingChildRow>
+                <SettingValueRow label="Child setting" description="Indented under the parent" value={demoNumber} suffix="mins" type="number" onChange={setDemoNumber} />
+              </SettingChildRow>
+            )}
+          </SettingsSection>
+        </div>
+      </div>
+
+      {/* ---- DAY HOURS ROW ---- */}
+      <div className="lib-section">
+        <h2 className="lib-heading">DayHoursRow</h2>
+        <p className="lib-note">
+          Per-day scheduling row with two time pickers and an open/closed toggle. Shows a <strong>+1 day</strong> badge
+          when the end time wraps past midnight.
+        </p>
+        <div className="lib-demo">
+          <SettingsSection>
+            <div className="hours-day-list" style={{ borderTop: 'none' }}>
+              <DayHoursRow
+                day="Mon"
+                start={demoDayStart}
+                end={demoDayEnd}
+                closed={!demoDayOpen}
+                onChangeStart={setDemoDayStart}
+                onChangeEnd={setDemoDayEnd}
+                onToggle={() => setDemoDayOpen(!demoDayOpen)}
+              />
+            </div>
+          </SettingsSection>
+          <p className="lib-hint">Try setting the end time earlier than the start to see the +1 day badge.</p>
+        </div>
+      </div>
+
+      {/* ---- FLAG ROW ---- */}
+      <div className="lib-section">
+        <h2 className="lib-heading">Flag Row</h2>
+        <p className="lib-note">
+          Used for shift flags. Each row has a name, description, an optional configurable threshold, and a right-aligned toggle.
+          When disabled, the condition input becomes read-only and the row dims.
+        </p>
+        <div className="lib-demo">
+          <SettingsSection>
+            <div className="flag-row">
+              <div className={`flag-row-content ${!demoFlag ? 'disabled' : ''}`}>
+                <div className="flag-row-name">Clock in/out too far from work location</div>
+                <div className="flag-row-desc">Flag when a worker clocks in or out beyond the allowed distance.</div>
+                <div className="flag-row-condition">
+                  <span className="flag-row-condition-label">Flag when distance exceeds</span>
+                  {demoFlag ? (
+                    <input className="flag-row-condition-input" type="number" value={demoFlagValue} onChange={e => setDemoFlagValue(e.target.value)} min="0" />
+                  ) : (
+                    <span className="flag-row-condition-value">{demoFlagValue}</span>
+                  )}
+                  <span className="flag-row-condition-unit">feet</span>
+                </div>
+              </div>
+              <div className={`setting-toggle ${demoFlag ? 'on' : ''}`} onClick={() => setDemoFlag(!demoFlag)}>
+                <div className="setting-toggle-thumb" />
+              </div>
+            </div>
+          </SettingsSection>
+        </div>
+      </div>
+
+      {/* ---- PIN ROW ---- */}
+      <div className="lib-section">
+        <h2 className="lib-heading">PIN Field</h2>
+        <p className="lib-note">
+          Sensitive value with an inline eye icon to toggle visibility. While hidden, the field is read-only and
+          shows dots. Click the eye (or click the field) to reveal and enable editing. Accepts 4–8 numeric digits.
+        </p>
+        <div className="lib-demo">
+          <SettingsSection>
+            <div className="pin-row">
+              <div className="pin-row-text">
+                <div className="ss-row-label">Manager PIN</div>
+                <div className="ss-row-desc">Required to access manager functions</div>
+              </div>
+              <div className="pin-field-wrapper">
+                <input
+                  className="pin-field"
+                  type={demoPinVisible ? 'text' : 'password'}
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  maxLength={8}
+                  value={demoPin}
+                  readOnly={!demoPinVisible}
+                  onChange={e => setDemoPin(e.target.value.replace(/[^0-9]/g, ''))}
+                  onClick={() => { if (!demoPinVisible) setDemoPinVisible(true) }}
+                />
+                <button className="pin-eye" type="button" onClick={() => setDemoPinVisible(!demoPinVisible)} tabIndex={-1}>
+                  {demoPinVisible ? <EyeOff size={16} /> : <Eye size={16} />}
+                </button>
+              </div>
+            </div>
+          </SettingsSection>
+        </div>
+      </div>
+
+      {/* ---- SAVE FLOW ---- */}
+      <div className="lib-section">
+        <h2 className="lib-heading">Save Flow</h2>
+        <p className="lib-note">
+          Three components work together for the page-level save mechanism:
+        </p>
+        <ul className="lib-list">
+          <li><strong>UnsavedChangesBar</strong> — sticky bottom bar that appears when the page is dirty. "Discard" reverts, "Save" commits.</li>
+          <li><strong>SaveChangesModal</strong> — intercepts navigation away from a dirty page. Offers "Go back", "Discard", or "Save and continue".</li>
+          <li><strong>SaveToast</strong> — temporary confirmation shown after a successful save.</li>
+        </ul>
+        <p className="lib-note">
+          Any setting change calls <code>markDirty()</code> from <code>scopeContext</code>. The <code>SettingsScreen</code> orchestrates all three.
+          To trigger the bar, edit any value on a real settings page.
+        </p>
+      </div>
+
+      {/* ---- SCOPE STATUS ---- */}
+      <div className="lib-section">
+        <h2 className="lib-heading">ScopeStatus</h2>
+        <p className="lib-note">
+          Inheritance badge shown in each page header. Displays where the current setting comes from in the
+          Company → Policy Group → Location cascade. Variants:
+        </p>
+        <ul className="lib-list">
+          <li><strong>Company scope</strong> — no badge (you're editing the base).</li>
+          <li><strong>Group scope, overriding</strong> — shows "<em>[Group] policy override</em>".</li>
+          <li><strong>Group scope, inheriting</strong> — shows "Using company default".</li>
+          <li><strong>Location scope, custom</strong> — shows "Custom for [Location]" with a <strong>Change</strong> button that opens the <code>AlignSettingsModal</code>.</li>
+          <li><strong>Location scope, from group</strong> — shows "From [Group] policy" with an "Edit policy" link.</li>
+          <li><strong>Location scope, from company</strong> — shows "Company default" with an "Edit default" link.</li>
+        </ul>
+        <p className="lib-note">Switch the scope picker in the sidebar to see different variants in action on any settings page.</p>
+      </div>
+
+      {/* ---- COMPLIANCE MODULE ---- */}
+      <div className="lib-section">
+        <h2 className="lib-heading">ComplianceModule</h2>
+        <p className="lib-note">
+          Three-state compliance indicator used on Breaks and Overtime pages:
+        </p>
+        <ul className="lib-list">
+          <li><strong>Empty</strong> — first-time setup prompt with auto-apply button and legal reference.</li>
+          <li><strong>Compliant</strong> — green checkmark with confirmation message.</li>
+          <li><strong>Warning</strong> — red alert with description of what's missing and a fix button.</li>
+        </ul>
+        <p className="lib-note">Navigate to Breaks or Overtime to see these in context.</p>
+      </div>
+
+    </div>
+  )
+}
 
 function PlaceholderPage({ title }) {
   return (
@@ -1640,45 +2360,11 @@ function SettingChildRow({ children }) {
 }
 
 /*
- * SettingToggleRow — a row with label + toggle.
- * Shows a current value summary when enabled.
- * Value is editable inline when clicked (not on the toggle).
+ * SettingToggleRow — a row with label + description + toggle (right-aligned).
+ * Optionally shows a read-only value summary when enabled.
  */
-function SettingToggleRow({ label, description, onDescription, offDescription, enabled, onToggle, value, onValueChange, options }) {
+function SettingToggleRow({ label, description, onDescription, offDescription, enabled, onToggle, value }) {
   const displayDescription = enabled ? (onDescription || description) : (offDescription || description)
-  const [editing, setEditing] = useState(false)
-  const [draft, setDraft] = useState(value || '')
-
-  const handleSave = () => {
-    if (onValueChange) onValueChange(draft)
-    setEditing(false)
-  }
-
-  const handleCancel = () => {
-    setDraft(value || '')
-    setEditing(false)
-  }
-
-  if (editing && enabled) {
-    return (
-      <div className="ss-row editing">
-        <div className="ss-row-text">
-          <div className="ss-row-label">{label}</div>
-        </div>
-        <div className="ss-inline-edit">
-          {options ? (
-            <select className="ss-inline-select" value={draft} onChange={e => setDraft(e.target.value)} autoFocus>
-              {options.map(o => <option key={o} value={o}>{o}</option>)}
-            </select>
-          ) : (
-            <input className="ss-inline-input" value={draft} onChange={e => setDraft(e.target.value)} autoFocus onKeyDown={e => { if (e.key === 'Enter') handleSave(); if (e.key === 'Escape') handleCancel() }} />
-          )}
-          <button className="ss-inline-save" onClick={handleSave}>Save</button>
-          <button className="ss-inline-cancel" onClick={handleCancel}>Cancel</button>
-        </div>
-      </div>
-    )
-  }
 
   return (
     <div className="ss-row">
@@ -1687,7 +2373,7 @@ function SettingToggleRow({ label, description, onDescription, offDescription, e
         {displayDescription && <div className="ss-row-desc">{displayDescription}</div>}
       </div>
       {enabled && value && (
-        <span className="ss-row-value clickable-value" onClick={(e) => { e.stopPropagation(); setEditing(true) }}>{value}</span>
+        <span className="ss-row-value">{value}</span>
       )}
       <div className={`setting-toggle ${enabled ? 'on' : ''}`} onClick={onToggle}>
         <div className="setting-toggle-thumb" />
@@ -1697,53 +2383,148 @@ function SettingToggleRow({ label, description, onDescription, offDescription, e
 }
 
 /*
- * SettingValueRow — a row that displays a value.
- * Click to expand inline editing.
- * Supports text input or select via `options` prop.
+ * SettingValueRow — a row with a directly-visible input.
+ * Short option lists (≤5) render as radio buttons; longer lists as dropdowns.
+ * Numeric values with a suffix render as input + unit label.
  */
-function SettingValueRow({ label, description, value, onChange, options }) {
-  const [editing, setEditing] = useState(false)
-  const [draft, setDraft] = useState(value)
-
-  const handleSave = () => {
-    if (onChange) onChange(draft)
-    setEditing(false)
-  }
-
-  const handleCancel = () => {
-    setDraft(value)
-    setEditing(false)
-  }
-
-  if (editing) {
+function SettingValueRow({ label, description, value, onChange, options, suffix, type, placeholder }) {
+  // Read-only (no onChange)
+  if (!onChange) {
     return (
-      <div className="ss-row editing">
+      <div className="ss-row">
         <div className="ss-row-text">
           <div className="ss-row-label">{label}</div>
+          {description && <div className="ss-row-desc">{description}</div>}
         </div>
-        <div className="ss-inline-edit">
-          {options ? (
-            <select className="ss-inline-select" value={draft} onChange={e => setDraft(e.target.value)} autoFocus>
-              {options.map(o => <option key={o} value={o}>{o}</option>)}
-            </select>
-          ) : (
-            <input className="ss-inline-input" value={draft} onChange={e => setDraft(e.target.value)} autoFocus onKeyDown={e => { if (e.key === 'Enter') handleSave(); if (e.key === 'Escape') handleCancel() }} />
-          )}
-          <button className="ss-inline-save" onClick={handleSave}>Save</button>
-          <button className="ss-inline-cancel" onClick={handleCancel}>Cancel</button>
+        <span className="ss-row-value">{suffix ? `${value} ${suffix}` : (value || placeholder || '')}</span>
+      </div>
+    )
+  }
+
+  // Short options → inline radio group
+  if (options && options.length <= 5) {
+    return (
+      <div className="ss-row ss-row-stacked">
+        <div className="ss-row-text">
+          <div className="ss-row-label">{label}</div>
+          {description && <div className="ss-row-desc">{description}</div>}
+        </div>
+        <div className="ss-radio-group">
+          {options.map(o => (
+            <label key={o} className="ss-radio-option" onClick={() => onChange(o)}>
+              <div className={`radio-circle ${value === o ? 'selected' : ''}`}>
+                {value === o && <div className="radio-dot" />}
+              </div>
+              <span>{o}</span>
+            </label>
+          ))}
         </div>
       </div>
     )
   }
 
+  // Long options → dropdown
+  if (options) {
+    return (
+      <div className="ss-row">
+        <div className="ss-row-text">
+          <div className="ss-row-label">{label}</div>
+          {description && <div className="ss-row-desc">{description}</div>}
+        </div>
+        <select className="ss-select" value={value} onChange={e => onChange(e.target.value)}>
+          {options.map(o => <option key={o} value={o}>{o}</option>)}
+        </select>
+      </div>
+    )
+  }
+
+  // Time picker (segmented hour:minute AM/PM)
+  if (type === 'time') {
+    return (
+      <div className="ss-row">
+        <div className="ss-row-text">
+          <div className="ss-row-label">{label}</div>
+          {description && <div className="ss-row-desc">{description}</div>}
+        </div>
+        <TimePicker value={value} onChange={onChange} />
+      </div>
+    )
+  }
+
+  // Text/number input with optional suffix
   return (
-    <div className="ss-row clickable" onClick={() => setEditing(true)}>
+    <div className="ss-row">
       <div className="ss-row-text">
         <div className="ss-row-label">{label}</div>
         {description && <div className="ss-row-desc">{description}</div>}
       </div>
-      <span className="ss-row-value">{value}</span>
-      <ChevronRight size={16} className="ss-row-chevron" />
+      <div className="ss-input-group">
+        <input
+          className="ss-input"
+          type={type || 'text'}
+          value={value}
+          onChange={e => onChange(e.target.value)}
+          placeholder={placeholder}
+        />
+        {suffix && <span className="ss-input-suffix">{suffix}</span>}
+      </div>
+    </div>
+  )
+}
+
+// ============================================================
+// TIME PICKER — segmented hour : minute  AM/PM
+// ============================================================
+
+function TimePicker({ value, onChange }) {
+  // Parse "9:00 AM" or "02:00 AM" into parts
+  const match = value?.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i)
+  const hour = match ? parseInt(match[1]) : 12
+  const minute = match ? parseInt(match[2]) : 0
+  const period = match ? match[3].toUpperCase() : 'AM'
+
+  const emit = (h, m, p) => {
+    onChange(`${h}:${String(m).padStart(2, '0')} ${p}`)
+  }
+
+  return (
+    <div className="time-picker">
+      <input
+        className="time-picker-field"
+        type="number"
+        min={1}
+        max={12}
+        value={hour}
+        onChange={e => {
+          let h = parseInt(e.target.value)
+          if (isNaN(h)) return
+          emit(Math.max(1, Math.min(12, h)), minute, period)
+        }}
+      />
+      <span className="time-picker-sep">:</span>
+      <input
+        className="time-picker-field time-picker-minute"
+        type="number"
+        min={0}
+        max={59}
+        value={String(minute).padStart(2, '0')}
+        onChange={e => {
+          let m = parseInt(e.target.value)
+          if (isNaN(m)) return
+          emit(hour, Math.max(0, Math.min(59, m)), period)
+        }}
+      />
+      <button
+        className={`time-picker-period ${period === 'AM' ? 'am' : 'pm'}`}
+        onClick={() => emit(hour, minute, period === 'AM' ? 'PM' : 'AM')}
+        onKeyDown={e => {
+          if (e.key.toLowerCase() === 'a') { e.preventDefault(); emit(hour, minute, 'AM') }
+          if (e.key.toLowerCase() === 'p') { e.preventDefault(); emit(hour, minute, 'PM') }
+        }}
+        type="button"
+      >
+        {period}
+      </button>
     </div>
   )
 }
