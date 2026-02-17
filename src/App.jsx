@@ -592,7 +592,7 @@ const NAV = [
   },
   {
     title: 'Reference', category: 'reference', items: [
-      { id: 'component_library', label: 'Component library' },
+      { id: 'design_reference', label: 'Design reference' },
     ]
   },
 ]
@@ -805,7 +805,7 @@ function ContentRouter({ category, item, scopeContext, hasBreakRules, hasOvertim
     return <PlaceholderPage title="Payroll integration" />
   }
   if (category === 'reference') {
-    if (item === 'component_library') return <ComponentLibraryPage />
+    if (item === 'design_reference') return <DesignReferencePage />
   }
   return <PlaceholderPage title={item.replace(/_/g, ' ')} />
 }
@@ -2018,8 +2018,7 @@ function SharedDevicePage({ scopeContext }) {
 // COMPONENT LIBRARY — interactive reference for all primitives
 // ============================================================
 
-function ComponentLibraryPage() {
-  // Demo state for interactive examples
+function DesignReferencePage() {
   const [demoToggle1, setDemoToggle1] = useState(true)
   const [demoToggle2, setDemoToggle2] = useState(false)
   const [demoText, setDemoText] = useState('Hello world')
@@ -2039,18 +2038,268 @@ function ComponentLibraryPage() {
     <div className="content-inner">
       <div className="page-header">
         <div>
-          <h1 className="page-title">Component Library</h1>
-          <p className="page-subtitle">Interactive reference of all standardized settings primitives</p>
+          <h1 className="page-title">Design Reference</h1>
+          <p className="page-subtitle">Architecture, interaction patterns, data models, and component API for the settings redesign</p>
         </div>
       </div>
 
-      {/* ---- SETTINGS SECTION ---- */}
+      {/* ================================================================
+          SECTION 1: NAVIGATION MODEL
+          ================================================================ */}
       <div className="lib-section">
-        <h2 className="lib-heading">SettingsSection</h2>
+        <h2 className="lib-heading">1. Navigation Model</h2>
         <p className="lib-note">
-          Card wrapper that groups related setting rows. Accepts an optional <code>title</code> and <code>description</code> header.
-          All setting rows go inside as children.
+          The application uses a <strong>two-mode architecture</strong>: a main app shell and a focused settings mode. These are mutually exclusive views — you are either in the main app or in settings, never both.
         </p>
+
+        <h3 className="lib-subheading">Entry &amp; Exit</h3>
+        <ul className="lib-list">
+          <li><strong>Enter settings</strong> — click the <em>Settings</em> button at the bottom of the main app sidebar. This replaces the main content area with the settings experience.</li>
+          <li><strong>Exit settings</strong> — click the <em>Back</em> button in the settings nav header. This returns to the main app, restoring the previous view.</li>
+        </ul>
+
+        <h3 className="lib-subheading">Why Two Modes?</h3>
+        <p className="lib-note">
+          Settings is conceptually separate from day-to-day workflows (scheduling, messaging, etc.). A dedicated mode reduces cognitive load — the user knows they are in "configuration" context, not "operational" context. It also frees up the full sidebar for settings navigation without competing with the main nav.
+        </p>
+
+        <h3 className="lib-subheading">Scope Picker Placement</h3>
+        <p className="lib-note">
+          The scope picker (Company / Policy Group / Location) lives in the settings sidebar, not in the content area or a toolbar. This is intentional: scope selection is a <strong>navigation-level concern</strong> — changing scope affects every settings page, so it belongs alongside page navigation. It also keeps the content area focused purely on the settings being edited.
+        </p>
+
+        <h3 className="lib-subheading">Implementation Notes</h3>
+        <ul className="lib-list">
+          <li><code>App</code> manages <code>inSettings</code> boolean state. When <code>true</code>, renders <code>SettingsScreen</code>; when <code>false</code>, renders <code>MainAppPlaceholder</code>.</li>
+          <li><code>MainSidebar</code> accepts <code>onOpenSettings</code> prop → sets <code>inSettings = true</code>.</li>
+          <li><code>SettingsNav</code> accepts <code>onBack</code> prop → sets <code>inSettings = false</code>.</li>
+          <li>The settings entry button should be rendered at the bottom of every main app sidebar variant (manager, admin, etc.).</li>
+        </ul>
+      </div>
+
+      {/* ================================================================
+          SECTION 2: INFORMATION ARCHITECTURE
+          ================================================================ */}
+      <div className="lib-section">
+        <h2 className="lib-heading">2. Information Architecture</h2>
+        <p className="lib-note">
+          Settings pages are organized into 4 functional categories plus a reference section. This structure maps directly to the <code>NAV</code> constant in code.
+        </p>
+
+        <div className="lib-ia-table">
+          <table className="lib-table">
+            <thead>
+              <tr><th>Category</th><th>Page</th><th>Description</th></tr>
+            </thead>
+            <tbody>
+              <tr className="lib-table-category"><td rowSpan={2}>Profile</td><td>Avatar</td><td>Profile picture and display name (placeholder)</td></tr>
+              <tr><td>Login and security</td><td>Password, 2FA, session management (placeholder)</td></tr>
+              <tr className="lib-table-category"><td rowSpan={2}>Payroll</td><td>Pay schedule</td><td>Pay frequency, pay period start, overtime calculation start time</td></tr>
+              <tr><td>Payroll integration</td><td>External payroll system connection (placeholder)</td></tr>
+              <tr className="lib-table-category"><td rowSpan={4}>Scheduling</td><td>Breaks</td><td>Break rules (duration, paid/unpaid, required/optional), compliance</td></tr>
+              <tr><td>Overtime</td><td>Weekly, daily, and double-time thresholds, compliance</td></tr>
+              <tr><td>Hours &amp; workweek</td><td>Operating hours per day, workweek start day, same-hours toggle</td></tr>
+              <tr><td>Shifts &amp; flags</td><td>Flag rules for clock anomalies (early, late, GPS distance, etc.)</td></tr>
+              <tr className="lib-table-category"><td rowSpan={3}>Time Clock</td><td>Shift enforcement</td><td>Early clock-in buffer, automatic clock-out</td></tr>
+              <tr><td>Time tracking</td><td>Clock rounding interval, rounding direction</td></tr>
+              <tr><td>Shared device</td><td>Kiosk mode, photo capture, GPS enforcement, manager PIN</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3 className="lib-subheading">Notes for Engineering</h3>
+        <ul className="lib-list">
+          <li><strong>Profile pages</strong> are stub placeholders — they exist to demonstrate that the settings sidebar handles non-admin settings too. Implementation is out of scope for this phase.</li>
+          <li>Pages with a <code>complianceKey</code> property in the NAV data (<em>Breaks</em>, <em>Overtime</em>) display a compliance module and a warning banner when non-compliant.</li>
+          <li>The nav renders a small colored dot next to pages that have compliance warnings, calculated from the <code>isCompliant</code> and <code>hasBreakRules</code> / <code>hasOvertimeConfig</code> state.</li>
+        </ul>
+      </div>
+
+      {/* ================================================================
+          SECTION 3: SCOPE & INHERITANCE MODEL
+          ================================================================ */}
+      <div className="lib-section">
+        <h2 className="lib-heading">3. Scope &amp; Inheritance Model</h2>
+        <p className="lib-note">
+          Settings follow a <strong>3-level cascade</strong>, from broadest to most specific:
+        </p>
+
+        <div className="lib-cascade">
+          <div className="lib-cascade-level">
+            <div className="lib-cascade-icon"><Building2 size={18} /></div>
+            <div>
+              <strong>Company Defaults</strong>
+              <span className="lib-cascade-desc">Base values that apply to all locations unless overridden.</span>
+            </div>
+          </div>
+          <div className="lib-cascade-arrow">↓</div>
+          <div className="lib-cascade-level">
+            <div className="lib-cascade-icon"><FileText size={18} /></div>
+            <div>
+              <strong>Policy Groups</strong>
+              <span className="lib-cascade-desc">Named collections of locations that share overrides (e.g., "California" for state-specific compliance). A location belongs to exactly one group.</span>
+            </div>
+          </div>
+          <div className="lib-cascade-arrow">↓</div>
+          <div className="lib-cascade-level">
+            <div className="lib-cascade-icon"><MapPin size={18} /></div>
+            <div>
+              <strong>Locations</strong>
+              <span className="lib-cascade-desc">Individual locations can override their group or the company default for any setting.</span>
+            </div>
+          </div>
+        </div>
+
+        <h3 className="lib-subheading">Resolution Logic</h3>
+        <p className="lib-note">
+          When displaying a setting for a given location, the system resolves the source using <code>resolveSettingSource(locationId, settingKey)</code>:
+        </p>
+        <ol className="lib-list lib-list-ordered">
+          <li>Check if the <strong>location</strong> has an override for <code>settingKey</code> → return <code>'location'</code></li>
+          <li>Check if the location's <strong>policy group</strong> has an override → return <code>'group'</code></li>
+          <li>Fall through to <strong>company default</strong> → return <code>'company'</code></li>
+        </ol>
+        <p className="lib-note">
+          This means a location <em>never</em> needs to explicitly store a value that matches its group or company default — it inherits automatically.
+        </p>
+
+        <h3 className="lib-subheading">ScopeStatus Badge Variants</h3>
+        <p className="lib-note">
+          Each settings page header displays a <code>ScopeStatus</code> badge showing where the current value comes from. The badge adapts based on the selected scope:
+        </p>
+        <ul className="lib-list">
+          <li><strong>Company scope selected</strong> — no badge shown (you're editing the base defaults).</li>
+          <li><strong>Group scope, has override</strong> — "<em>[Group name] policy override</em>" in blue. Indicates the group has its own value.</li>
+          <li><strong>Group scope, inheriting</strong> — "Using company default" in neutral gray. Indicates the group uses the base value.</li>
+          <li><strong>Location scope, custom override</strong> — "Custom for [Location]" in amber, with a <strong>Change</strong> button. Clicking Change opens the <code>AlignSettingsModal</code> to realign with a group or company default.</li>
+          <li><strong>Location scope, from group</strong> — "From [Group] policy" with an "Edit policy" link that navigates to the group scope.</li>
+          <li><strong>Location scope, from company</strong> — "Company default" with an "Edit default" link that navigates to company scope.</li>
+        </ul>
+
+        <h3 className="lib-subheading">AlignSettingsModal</h3>
+        <p className="lib-note">
+          When a location has a custom override, the user can open the <code>AlignSettingsModal</code> to choose a new inheritance source. The modal presents all available options (company default, the location's policy group, or keep custom) and previews what will change. Selecting an option removes the location override and lets it inherit from the chosen source.
+        </p>
+
+        <h3 className="lib-subheading">Data Model (Prototype)</h3>
+        <ul className="lib-list">
+          <li><code>POLICY_GROUPS[]</code> — each has <code>id</code>, <code>name</code>, <code>subtitle</code>, <code>locationIds[]</code>, and <code>overrides</code> (object mapping setting keys to booleans).</li>
+          <li><code>LOCATIONS[]</code> — each has <code>id</code>, <code>name</code>, <code>subtitle</code>, <code>groupId</code>, and <code>overrides</code>.</li>
+          <li>In production, <code>overrides</code> should store actual values (not just boolean flags) and the resolution logic should return the resolved <em>value</em>, not just the source.</li>
+        </ul>
+      </div>
+
+      {/* ================================================================
+          SECTION 4: SAVE FLOW
+          ================================================================ */}
+      <div className="lib-section">
+        <h2 className="lib-heading">4. Save Flow</h2>
+        <p className="lib-note">
+          The save mechanism uses a <strong>page-level dirty state</strong> pattern, not per-field saves. All changes on a page accumulate until the user explicitly saves or discards. Three components work together:
+        </p>
+
+        <h3 className="lib-subheading">Components</h3>
+        <ul className="lib-list">
+          <li>
+            <strong>UnsavedChangesBar</strong> — a sticky bar anchored to the bottom of the content area. Appears with a slide-up animation when <code>isDirty</code> becomes true. Provides two actions: <em>Discard</em> (reverts all changes) and <em>Save</em> (commits changes).
+          </li>
+          <li>
+            <strong>SaveChangesModal</strong> — a modal dialog that intercepts navigation when the page is dirty. If the user clicks a different nav item while unsaved changes exist, the navigation is blocked and this modal appears with three choices:
+            <ul className="lib-list">
+              <li><em>Go back</em> — cancels the navigation, returns to the dirty page.</li>
+              <li><em>Discard changes</em> — throws away changes and proceeds to the new page.</li>
+              <li><em>Save and continue</em> — saves changes, then navigates to the new page.</li>
+            </ul>
+          </li>
+          <li>
+            <strong>SaveToast</strong> — a brief confirmation message that slides in from the bottom-right after a successful save. Auto-dismisses after 3 seconds. Shows a checkmark icon and "Settings saved" message.
+          </li>
+        </ul>
+
+        <h3 className="lib-subheading">Dirty State Lifecycle</h3>
+        <ol className="lib-list lib-list-ordered">
+          <li>User modifies any setting → page calls <code>markDirty()</code> from the scope context</li>
+          <li><code>isDirty</code> becomes <code>true</code> → <code>UnsavedChangesBar</code> appears</li>
+          <li>User clicks <em>Save</em> → <code>markClean()</code> called, <code>triggerToast()</code> fires the toast</li>
+          <li>Or user clicks <em>Discard</em> → <code>markClean()</code> called, no toast</li>
+          <li>Or user navigates away → <code>pendingNav</code> is set, <code>SaveChangesModal</code> opens</li>
+        </ol>
+
+        <h3 className="lib-subheading">Implementation Notes</h3>
+        <ul className="lib-list">
+          <li>All orchestration lives in <code>SettingsScreen</code>. Individual page components only need to call <code>markDirty()</code> — they never manage their own save UI.</li>
+          <li><code>pendingNav</code> stores the <code>{'{category, item}'}</code> the user tried to navigate to. When the modal resolves, the pending nav is either executed or cleared.</li>
+          <li>The unsaved bar uses <code>position: absolute</code> within a <code>position: relative</code> parent to avoid scroll issues. It does <em>not</em> use <code>position: sticky</code> because the content area has overflow handling.</li>
+          <li>In production, <code>markDirty()</code> should accept a changeset diff so that <em>Discard</em> can truly revert to the previous state rather than just reloading.</li>
+        </ul>
+      </div>
+
+      {/* ================================================================
+          SECTION 5: COMPLIANCE SYSTEM
+          ================================================================ */}
+      <div className="lib-section">
+        <h2 className="lib-heading">5. Compliance System</h2>
+        <p className="lib-note">
+          Compliance is surfaced through two UI elements: a <strong>page-level compliance module</strong> (inside the Breaks and Overtime pages) and a <strong>banner</strong> in the content header area. Together, they guide the user from unconfigured → compliant or highlight when existing settings have drifted out of compliance.
+        </p>
+
+        <h3 className="lib-subheading">ComplianceModule States</h3>
+        <p className="lib-note">The module operates as a 3-state machine:</p>
+        <ul className="lib-list">
+          <li>
+            <strong>Empty (first-time setup)</strong> — shown when no rules exist yet. Displays a prompt with an auto-apply button ("Apply California defaults") and a "View applicable law" link. The auto-apply triggers the <code>ComplianceWizard</code>.
+          </li>
+          <li>
+            <strong>Compliant</strong> — green checkmark with a confirmation message (e.g., "Your break rules meet California requirements"). Shown when existing rules satisfy the compliance check.
+          </li>
+          <li>
+            <strong>Warning</strong> — red alert icon with a specific description of what's missing (e.g., "California requires a 30-minute unpaid meal break for shifts over 5 hours") and a "Fix compliance" button that opens the wizard.
+          </li>
+        </ul>
+
+        <h3 className="lib-subheading">ComplianceWizard</h3>
+        <p className="lib-note">
+          A multi-step modal that auto-applies state-specific defaults. The current prototype is hardcoded to California and handles two compliance domains:
+        </p>
+        <ul className="lib-list">
+          <li><strong>Breaks</strong> — applies a 10-min paid rest break (shifts 3.5+ hrs) and a 30-min unpaid meal break (shifts 5+ hrs).</li>
+          <li><strong>Overtime</strong> — applies 40-hr weekly threshold, 8-hr daily threshold, and 12-hr double-time threshold.</li>
+        </ul>
+        <p className="lib-note">
+          In production, the wizard should detect the applicable state from the location's address and load the correct rule set dynamically. The wizard flow should also support reviewing changes before applying.
+        </p>
+
+        <h3 className="lib-subheading">Compliance Banner</h3>
+        <p className="lib-note">
+          When <code>isCompliant</code> is <code>false</code>, a warning banner appears at the top of the content area (below the page header, above the first section). The banner reads: <em>"Compliance issues detected — Your settings are not compliant with state law."</em> and links to the compliance wizard.
+        </p>
+
+        <h3 className="lib-subheading">Nav Indicator</h3>
+        <p className="lib-note">
+          The sidebar navigation shows a small red/amber dot next to pages that have compliance issues. This is calculated from page-level state (<code>isCompliant</code>, <code>hasBreakRules</code>, <code>hasOvertimeConfig</code>) and rendered in <code>SettingsNav</code>.
+        </p>
+      </div>
+
+      {/* ================================================================
+          SECTION 6: COMPONENT PRIMITIVES
+          ================================================================ */}
+      <div className="lib-section">
+        <h2 className="lib-heading">6. Component Primitives</h2>
+        <p className="lib-note">
+          All settings pages are built from a small set of standardized components. This section documents each primitive's API, rendering behavior, and intended usage with live interactive demos.
+        </p>
+      </div>
+
+      {/* -- 6a: SettingsSection -- */}
+      <div className="lib-section lib-subsection">
+        <h3 className="lib-subheading">6a. SettingsSection</h3>
+        <p className="lib-note">
+          Card wrapper that groups related setting rows. Renders a white card with border-radius and subtle shadow.
+        </p>
+        <ul className="lib-list">
+          <li><strong>Props:</strong> <code>title</code> (string, optional), <code>description</code> (string, optional), <code>children</code></li>
+          <li><strong>Behavior:</strong> If <code>title</code> is provided, renders a header area with title and optional description. All child rows are rendered below the header with dividers between them.</li>
+        </ul>
         <div className="lib-demo">
           <SettingsSection title="Example Section" description="This description explains what the section controls.">
             <div className="ss-row"><div className="ss-row-text"><div className="ss-row-label">Rows go here</div><div className="ss-row-desc">Each row is a child of the section</div></div></div>
@@ -2058,13 +2307,17 @@ function ComponentLibraryPage() {
         </div>
       </div>
 
-      {/* ---- TOGGLE ROW ---- */}
-      <div className="lib-section">
-        <h2 className="lib-heading">SettingToggleRow</h2>
+      {/* -- 6b: SettingToggleRow -- */}
+      <div className="lib-section lib-subsection">
+        <h3 className="lib-subheading">6b. SettingToggleRow</h3>
         <p className="lib-note">
-          A row with a label, contextual description, and a right-aligned toggle. The description changes based on the on/off state
-          via <code>onDescription</code> and <code>offDescription</code>. Optional <code>value</code> prop shows a read-only summary when enabled.
+          A row with a label, contextual description, and a right-aligned toggle switch.
         </p>
+        <ul className="lib-list">
+          <li><strong>Props:</strong> <code>label</code>, <code>onDescription</code>, <code>offDescription</code>, <code>enabled</code> (bool), <code>onToggle</code> (fn), <code>value</code> (string, optional)</li>
+          <li><strong>Behavior:</strong> Description text swaps between <code>onDescription</code> and <code>offDescription</code> based on the toggle state. If <code>value</code> is provided and the toggle is on, the value appears as read-only text below the description.</li>
+          <li><strong>Design rule:</strong> The toggle is always on the right. This is consistent across all toggle-based components (flag rows, break rule toggles, day hours).</li>
+        </ul>
         <div className="lib-demo">
           <SettingsSection>
             <SettingToggleRow
@@ -2086,65 +2339,59 @@ function ComponentLibraryPage() {
         </div>
       </div>
 
-      {/* ---- VALUE ROW: TEXT ---- */}
-      <div className="lib-section">
-        <h2 className="lib-heading">SettingValueRow — Text Input</h2>
+      {/* -- 6c: SettingValueRow -- */}
+      <div className="lib-section lib-subsection">
+        <h3 className="lib-subheading">6c. SettingValueRow</h3>
         <p className="lib-note">
-          Editable text input. Pass <code>value</code> and <code>onChange</code>. Without <code>onChange</code>, the row is read-only.
+          The most versatile primitive. Renders a label + description on the left and an input control on the right (or stacked below for radio). The rendering mode is determined automatically from props:
         </p>
+        <ul className="lib-list">
+          <li><strong>Read-only</strong> — no <code>onChange</code> provided → plain text display</li>
+          <li><strong>Radio buttons</strong> — <code>options</code> array with ≤5 items → inline radio group (stacked layout)</li>
+          <li><strong>Dropdown</strong> — <code>options</code> array with &gt;5 items → native <code>&lt;select&gt;</code></li>
+          <li><strong>Time picker</strong> — <code>type="time"</code> → segmented hour:minute AM/PM picker</li>
+          <li><strong>Number + suffix</strong> — <code>type="number"</code> + <code>suffix</code> → number input with unit label and stepper buttons</li>
+          <li><strong>Text input</strong> — default → standard text <code>&lt;input&gt;</code></li>
+        </ul>
+        <p className="lib-note">
+          <strong>Key design decision:</strong> Inputs are always directly visible and editable — there is no "click to edit" pattern. This was an intentional change from the original design: because we have a page-level save button, there's no need for per-field edit modes. Exposing inputs directly reduces friction and makes the current values scannable.
+        </p>
+
+        <h3 className="lib-subheading" style={{ marginTop: 24 }}>Text Input</h3>
         <div className="lib-demo">
           <SettingsSection>
-            <SettingValueRow label="Editable text" description="Click the input to change" value={demoText} onChange={setDemoText} />
+            <SettingValueRow label="Editable text" description="Standard text input" value={demoText} onChange={setDemoText} />
             <SettingValueRow label="Read-only" description="No onChange — display only" value="Static value" />
           </SettingsSection>
         </div>
-      </div>
 
-      {/* ---- VALUE ROW: NUMBER + SUFFIX ---- */}
-      <div className="lib-section">
-        <h2 className="lib-heading">SettingValueRow — Number with Suffix</h2>
-        <p className="lib-note">
-          Pass <code>type="number"</code> and <code>suffix</code> to render a numeric input with a unit label and native stepper buttons.
-        </p>
+        <h3 className="lib-subheading" style={{ marginTop: 24 }}>Number + Suffix</h3>
+        <p className="lib-note">Uses native stepper buttons. The <code>suffix</code> prop renders a unit label to the right of the input.</p>
         <div className="lib-demo">
           <SettingsSection>
             <SettingValueRow label="Rounding interval" description="Clock times rounded to this value" value={demoNumber} suffix="mins" type="number" onChange={setDemoNumber} />
           </SettingsSection>
         </div>
-      </div>
 
-      {/* ---- VALUE ROW: RADIO (SHORT OPTIONS) ---- */}
-      <div className="lib-section">
-        <h2 className="lib-heading">SettingValueRow — Radio Buttons</h2>
-        <p className="lib-note">
-          When <code>options</code> has 5 or fewer items, they render as inline radio buttons.
-        </p>
+        <h3 className="lib-subheading" style={{ marginTop: 24 }}>Radio Buttons (≤5 options)</h3>
+        <p className="lib-note">Renders as a stacked row with the radio group below the label. Used for short, mutually exclusive option lists.</p>
         <div className="lib-demo">
           <SettingsSection>
             <SettingValueRow label="Pay frequency" value={demoRadio} onChange={setDemoRadio} options={['Weekly', 'Bi-weekly', 'Semi-monthly', 'Monthly']} />
           </SettingsSection>
         </div>
-      </div>
 
-      {/* ---- VALUE ROW: DROPDOWN (LONG OPTIONS) ---- */}
-      <div className="lib-section">
-        <h2 className="lib-heading">SettingValueRow — Dropdown</h2>
-        <p className="lib-note">
-          When <code>options</code> has more than 5 items, a native <code>&lt;select&gt;</code> dropdown is used instead.
-        </p>
+        <h3 className="lib-subheading" style={{ marginTop: 24 }}>Dropdown (&gt;5 options)</h3>
+        <p className="lib-note">Automatically switches to a native <code>&lt;select&gt;</code> when the options list exceeds 5 items. Use this threshold consistently.</p>
         <div className="lib-demo">
           <SettingsSection>
             <SettingValueRow label="Starts on" value={demoDropdown} onChange={setDemoDropdown} options={['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']} />
           </SettingsSection>
         </div>
-      </div>
 
-      {/* ---- VALUE ROW: TIME ---- */}
-      <div className="lib-section">
-        <h2 className="lib-heading">SettingValueRow — Time Picker</h2>
+        <h3 className="lib-subheading" style={{ marginTop: 24 }}>Time Picker</h3>
         <p className="lib-note">
-          Pass <code>type="time"</code> to render a segmented time picker with separate hour, minute, and AM/PM fields.
-          The AM/PM button toggles on click and responds to <code>a</code> / <code>p</code> keys.
+          Segmented picker with separate hour, minute, and AM/PM fields. The AM/PM segment toggles on click and also responds to <code>a</code> / <code>p</code> keyboard input. Hour and minute fields accept numeric input with stepper buttons.
         </p>
         <div className="lib-demo">
           <SettingsSection>
@@ -2153,13 +2400,16 @@ function ComponentLibraryPage() {
         </div>
       </div>
 
-      {/* ---- CHILD ROW ---- */}
-      <div className="lib-section">
-        <h2 className="lib-heading">SettingChildRow</h2>
+      {/* -- 6d: SettingChildRow -- */}
+      <div className="lib-section lib-subsection">
+        <h3 className="lib-subheading">6d. SettingChildRow</h3>
         <p className="lib-note">
-          Wraps child settings that depend on a parent toggle. Visually indented to show the dependency relationship.
-          Typically rendered conditionally when the parent toggle is on.
+          Indented wrapper for dependent child settings. Renders its children with a left indent to visually communicate hierarchy. Typically used inside a conditional block that checks whether the parent toggle is on.
         </p>
+        <ul className="lib-list">
+          <li><strong>Props:</strong> <code>children</code> only</li>
+          <li><strong>Pattern:</strong> Parent <code>SettingToggleRow</code> → conditional <code>SettingChildRow</code> containing child <code>SettingValueRow</code> or similar</li>
+        </ul>
         <div className="lib-demo">
           <SettingsSection>
             <SettingToggleRow
@@ -2178,13 +2428,29 @@ function ComponentLibraryPage() {
         </div>
       </div>
 
-      {/* ---- DAY HOURS ROW ---- */}
-      <div className="lib-section">
-        <h2 className="lib-heading">DayHoursRow</h2>
+      {/* -- 6e: TimePicker -- */}
+      <div className="lib-section lib-subsection">
+        <h3 className="lib-subheading">6e. TimePicker</h3>
         <p className="lib-note">
-          Per-day scheduling row with two time pickers and an open/closed toggle. Shows a <strong>+1 day</strong> badge
-          when the end time wraps past midnight.
+          Standalone segmented time input. Typically used inside <code>SettingValueRow</code> (via <code>type="time"</code>) or inside <code>DayHoursRow</code>.
         </p>
+        <ul className="lib-list">
+          <li><strong>Props:</strong> <code>value</code> (string, e.g. <code>"9:00 AM"</code>), <code>onChange</code> (fn)</li>
+          <li><strong>Segments:</strong> Hour (1–12, numeric with steppers), Minute (00–59, numeric with steppers), Period (AM/PM, click to toggle or press <code>a</code>/<code>p</code>)</li>
+          <li><strong>Output format:</strong> <code>"H:MM AM"</code> or <code>"H:MM PM"</code></li>
+        </ul>
+      </div>
+
+      {/* -- 6f: DayHoursRow -- */}
+      <div className="lib-section lib-subsection">
+        <h3 className="lib-subheading">6f. DayHoursRow</h3>
+        <p className="lib-note">
+          Per-day scheduling row with open/close time pickers and an on/off toggle. Detects when the end time is earlier than the start time and displays a <strong>+1 day</strong> badge to indicate next-day hours.
+        </p>
+        <ul className="lib-list">
+          <li><strong>Props:</strong> <code>day</code> (string), <code>start</code>, <code>end</code>, <code>closed</code> (bool), <code>onChangeStart</code>, <code>onChangeEnd</code>, <code>onToggle</code></li>
+          <li><strong>Next-day detection:</strong> Uses <code>isNextDay(start, end)</code> helper which compares 24hr-converted times. If end ≤ start, the +1 badge appears. Maximum supported closing time is 2:00 AM next day.</li>
+        </ul>
         <div className="lib-demo">
           <SettingsSection>
             <div className="hours-day-list" style={{ borderTop: 'none' }}>
@@ -2203,13 +2469,17 @@ function ComponentLibraryPage() {
         </div>
       </div>
 
-      {/* ---- FLAG ROW ---- */}
-      <div className="lib-section">
-        <h2 className="lib-heading">Flag Row</h2>
+      {/* -- 6g: Flag Row -- */}
+      <div className="lib-section lib-subsection">
+        <h3 className="lib-subheading">6g. Flag Row</h3>
         <p className="lib-note">
-          Used for shift flags. Each row has a name, description, an optional configurable threshold, and a right-aligned toggle.
-          When disabled, the condition input becomes read-only and the row dims.
+          Used on the Shifts &amp; Flags page. Each flag has a name, description, an optional configurable threshold (with label, input, and unit), and a right-aligned toggle.
         </p>
+        <ul className="lib-list">
+          <li><strong>Data model:</strong> Each flag has <code>id</code>, <code>name</code>, <code>description</code>, <code>enabled</code>, optional <code>conditionLabel</code>, <code>conditionValue</code>, <code>conditionUnit</code></li>
+          <li><strong>Disabled state:</strong> When toggled off, the content area gets <code>opacity: 0.5</code> and the threshold input becomes read-only (displays as plain text).</li>
+          <li><strong>Toggle placement:</strong> Always on the right side, consistent with all other toggle components.</li>
+        </ul>
         <div className="lib-demo">
           <SettingsSection>
             <div className="flag-row">
@@ -2234,13 +2504,18 @@ function ComponentLibraryPage() {
         </div>
       </div>
 
-      {/* ---- PIN ROW ---- */}
-      <div className="lib-section">
-        <h2 className="lib-heading">PIN Field</h2>
+      {/* -- 6h: PIN Field -- */}
+      <div className="lib-section lib-subsection">
+        <h3 className="lib-subheading">6h. PIN Field</h3>
         <p className="lib-note">
-          Sensitive value with an inline eye icon to toggle visibility. While hidden, the field is read-only and
-          shows dots. Click the eye (or click the field) to reveal and enable editing. Accepts 4–8 numeric digits.
+          A sensitive-value input pattern for the manager PIN on the Shared Device page.
         </p>
+        <ul className="lib-list">
+          <li><strong>Default state:</strong> Field shows password dots, is <code>readOnly</code>. An inline eye icon button (<code>Eye</code> from lucide) sits inside the field.</li>
+          <li><strong>Reveal:</strong> Clicking the eye or the field itself sets <code>pinVisible = true</code>, showing the PIN and enabling editing.</li>
+          <li><strong>Input constraints:</strong> <code>inputMode="numeric"</code>, <code>pattern="[0-9]*"</code>, <code>maxLength={'{8}'}</code>. Non-numeric characters are stripped on input.</li>
+          <li><strong>Toggle back:</strong> Clicking the eye icon again (<code>EyeOff</code>) hides and locks the field.</li>
+        </ul>
         <div className="lib-demo">
           <SettingsSection>
             <div className="pin-row">
@@ -2269,53 +2544,81 @@ function ComponentLibraryPage() {
         </div>
       </div>
 
-      {/* ---- SAVE FLOW ---- */}
-      <div className="lib-section">
-        <h2 className="lib-heading">Save Flow</h2>
+      {/* -- 6i: Break Rule Card -- */}
+      <div className="lib-section lib-subsection">
+        <h3 className="lib-subheading">6i. Break Rule Card</h3>
         <p className="lib-note">
-          Three components work together for the page-level save mechanism:
+          List-view card for break rules on the Breaks page. Designed for scanability — the most important information is visible at a glance without expanding.
         </p>
         <ul className="lib-list">
-          <li><strong>UnsavedChangesBar</strong> — sticky bottom bar that appears when the page is dirty. "Discard" reverts, "Save" commits.</li>
-          <li><strong>SaveChangesModal</strong> — intercepts navigation away from a dirty page. Offers "Go back", "Discard", or "Save and continue".</li>
-          <li><strong>SaveToast</strong> — temporary confirmation shown after a successful save.</li>
+          <li><strong>Title row:</strong> Rule name (large weight) + inline badges for type (<em>Paid</em>/<em>Unpaid</em>) and requirement (<em>Required</em>/<em>Optional</em>).</li>
+          <li><strong>Summary:</strong> A natural-language sentence describing the rule, e.g. "30-minute break after 5 hours for all roles." Generated from the rule's duration, trigger, and role assignment.</li>
+          <li><strong>Modifiers:</strong> Only <em>active</em> modifiers are shown as small tags: "Waivable", "Can end early", "Reminder". Inactive modifiers are hidden (not shown as disabled) to reduce noise.</li>
+          <li><strong>Chevron:</strong> Right-aligned chevron indicates the card is clickable (opens the break rule editor). Rendered at low opacity to keep focus on content.</li>
         </ul>
+      </div>
+
+      {/* ================================================================
+          SECTION 7: PAGE-SPECIFIC PATTERNS
+          ================================================================ */}
+      <div className="lib-section">
+        <h2 className="lib-heading">7. Page-Specific Patterns</h2>
         <p className="lib-note">
-          Any setting change calls <code>markDirty()</code> from <code>scopeContext</code>. The <code>SettingsScreen</code> orchestrates all three.
-          To trigger the bar, edit any value on a real settings page.
+          Patterns that are unique to individual pages and not covered by the generic primitives above.
         </p>
       </div>
 
-      {/* ---- SCOPE STATUS ---- */}
-      <div className="lib-section">
-        <h2 className="lib-heading">ScopeStatus</h2>
-        <p className="lib-note">
-          Inheritance badge shown in each page header. Displays where the current setting comes from in the
-          Company → Policy Group → Location cascade. Variants:
-        </p>
+      <div className="lib-section lib-subsection">
+        <h3 className="lib-subheading">7a. Breaks — Rule List &amp; Editor</h3>
         <ul className="lib-list">
-          <li><strong>Company scope</strong> — no badge (you're editing the base).</li>
-          <li><strong>Group scope, overriding</strong> — shows "<em>[Group] policy override</em>".</li>
-          <li><strong>Group scope, inheriting</strong> — shows "Using company default".</li>
-          <li><strong>Location scope, custom</strong> — shows "Custom for [Location]" with a <strong>Change</strong> button that opens the <code>AlignSettingsModal</code>.</li>
-          <li><strong>Location scope, from group</strong> — shows "From [Group] policy" with an "Edit policy" link.</li>
-          <li><strong>Location scope, from company</strong> — shows "Company default" with an "Edit default" link.</li>
+          <li><strong>List view:</strong> Displays all break rules as <code>BreakRuleRow</code> cards. An "Add break rule" button at the bottom opens the editor for a new rule.</li>
+          <li><strong>Editor:</strong> <code>BreakRuleEditor</code> is a full-page form (replaces the list view), not a modal. This is intentional — break rules have enough fields that a modal would feel cramped.</li>
+          <li><strong>Editor fields:</strong> Name, duration (minutes), type (paid/unpaid radio), trigger (after X hours), required toggle, waivable toggle, allow early end toggle, send reminder toggle, and role assignment.</li>
+          <li><strong>Role picker:</strong> A multi-select dropdown component (<code>RolePicker</code>) that groups roles by department. Each department has a checkbox that toggles all roles in that department. "All roles" is a special option that selects everything. Roles come from <code>ROLE_GROUPS</code> data.</li>
+          <li><strong>Navigation:</strong> The editor has its own "Back" button that returns to the rule list. If the page is dirty, the standard save flow intercepts.</li>
+          <li><strong>Delete:</strong> Each existing rule can be deleted via a "Delete rule" button in the editor, which requires confirmation.</li>
         </ul>
-        <p className="lib-note">Switch the scope picker in the sidebar to see different variants in action on any settings page.</p>
       </div>
 
-      {/* ---- COMPLIANCE MODULE ---- */}
-      <div className="lib-section">
-        <h2 className="lib-heading">ComplianceModule</h2>
-        <p className="lib-note">
-          Three-state compliance indicator used on Breaks and Overtime pages:
-        </p>
+      <div className="lib-section lib-subsection">
+        <h3 className="lib-subheading">7b. Overtime — Threshold Inputs</h3>
         <ul className="lib-list">
-          <li><strong>Empty</strong> — first-time setup prompt with auto-apply button and legal reference.</li>
-          <li><strong>Compliant</strong> — green checkmark with confirmation message.</li>
-          <li><strong>Warning</strong> — red alert with description of what's missing and a fix button.</li>
+          <li>Three numeric threshold inputs: weekly hours, daily hours, and double-time daily hours.</li>
+          <li>Each uses <code>SettingValueRow</code> with <code>type="number"</code> and <code>suffix="hrs"</code>.</li>
+          <li><strong>Zero behavior:</strong> Setting any threshold to <code>0</code> effectively disables that overtime rule. The UI should communicate this clearly in production (e.g., showing "Disabled" when value is 0).</li>
+          <li>This page also displays a compliance module that checks whether the thresholds meet state law requirements.</li>
         </ul>
-        <p className="lib-note">Navigate to Breaks or Overtime to see these in context.</p>
+      </div>
+
+      <div className="lib-section lib-subsection">
+        <h3 className="lib-subheading">7c. Hours &amp; Workweek — Scheduling Mode</h3>
+        <ul className="lib-list">
+          <li><strong>"Same hours every day" toggle:</strong> When on, shows two shared time pickers (start/end). When off, renders a list of <code>DayHoursRow</code> components for each day of the week.</li>
+          <li><strong>Individual day toggle:</strong> Each day can be toggled open/closed independently. When closed, the row shows "Closed" text and the time pickers are hidden.</li>
+          <li><strong>Next-day hours:</strong> End times can be set up to 2:00 AM. When the end time wraps past midnight (i.e., end ≤ start), a "+1 day" badge appears. A note at the bottom of the section explains this.</li>
+          <li><strong>Workweek start:</strong> A dropdown (<code>SettingValueRow</code> with 7 day options) sets which day the workweek begins. This affects overtime calculations.</li>
+        </ul>
+      </div>
+
+      <div className="lib-section lib-subsection">
+        <h3 className="lib-subheading">7d. Shifts &amp; Flags — Flag Data Model</h3>
+        <ul className="lib-list">
+          <li>Flags are stored as an array of objects in <code>DEFAULT_FLAGS</code>.</li>
+          <li>Each flag object: <code>{'{id, name, description, enabled, conditionLabel?, conditionValue?, conditionUnit?}'}</code></li>
+          <li>Flags without a <code>conditionLabel</code> are simple on/off toggles (no threshold input).</li>
+          <li>Flags with a condition render an additional input row showing the label, a number input for the value, and a unit label.</li>
+          <li>Flag descriptions should be written as actionable explanations of <em>when</em> the flag triggers, not just the flag name. Example: "Flag when a worker clocks in or out beyond the allowed distance" rather than "GPS distance flag."</li>
+        </ul>
+      </div>
+
+      <div className="lib-section lib-subsection">
+        <h3 className="lib-subheading">7e. Shared Device — PIN Interaction</h3>
+        <ul className="lib-list">
+          <li>The Shared Device page has multiple toggle settings (kiosk mode, photo capture, GPS) that use standard <code>SettingToggleRow</code> components.</li>
+          <li>The Manager PIN field is the exception: it uses the custom PIN field pattern (see 6h above) because it requires show/hide functionality for a sensitive value.</li>
+          <li>The PIN field lives inside a <code>SettingsSection</code> alongside other shared device settings, using a custom <code>.pin-row</code> layout that matches the row height and spacing of standard rows.</li>
+          <li><strong>Validation note:</strong> In production, PIN changes should require re-authentication or confirmation. The prototype skips this for simplicity.</li>
+        </ul>
       </div>
 
     </div>

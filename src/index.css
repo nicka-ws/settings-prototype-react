@@ -1939,6 +1939,125 @@ body {
   font-style: italic;
 }
 
+.lib-subheading {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 16px 0 6px;
+}
+
+.lib-subsection {
+  padding-left: 16px;
+  border-left: 3px solid var(--border);
+}
+
+.lib-list-ordered {
+  list-style: decimal;
+  padding-left: 22px;
+}
+
+.lib-list li ul {
+  margin-top: 4px;
+  margin-bottom: 4px;
+  padding-left: 16px;
+}
+
+/* Cascade diagram */
+.lib-cascade {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  margin: 12px 0 16px;
+  max-width: 480px;
+}
+
+.lib-cascade-level {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.lib-cascade-level strong {
+  display: block;
+  font-size: 13px;
+  color: var(--text-primary);
+  margin-bottom: 2px;
+}
+
+.lib-cascade-desc {
+  display: block;
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.lib-cascade-icon {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  margin-top: 2px;
+}
+
+.lib-cascade-arrow {
+  text-align: center;
+  font-size: 16px;
+  color: var(--text-tertiary);
+  padding: 2px 0;
+}
+
+/* IA Table */
+.lib-ia-table {
+  margin: 12px 0 16px;
+  overflow-x: auto;
+}
+
+.lib-table {
+  width: 100%;
+  max-width: 700px;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.lib-table th {
+  text-align: left;
+  padding: 8px 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  border-bottom: 2px solid var(--border);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.lib-table td {
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.lib-table-category td:first-child {
+  font-weight: 600;
+  color: var(--text-primary);
+  vertical-align: top;
+}
+
+.lib-table td:nth-child(2) {
+  font-weight: 500;
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
 /* ============ PLACEHOLDER PAGE ============ */
 .placeholder-page {
   display: flex;
