@@ -232,8 +232,42 @@ function MainSidebar({ onOpenSettings }) {
 }
 
 // ============================================================
+// SHARED PAGE CONSTANTS (hoisted — used by DEFAULT_PAGE_VALUES and pages below)
+// ============================================================
+
+const DEFAULT_BREAK_RULES_CONST = [
+  { id: 1, name: 'Meal Break', roles: [], type: 'Unpaid', shiftDuration: '5', breakDuration: '30', earliest: '5', latest: '6', required: true, waivable: false, allowEarlyEnd: false, sendReminder: false, reminderMins: '10' },
+  { id: 2, name: 'Rest Break', roles: [], type: 'Paid', shiftDuration: '4', breakDuration: '10', earliest: '3', latest: '4.5', required: true, waivable: false, allowEarlyEnd: true, sendReminder: true, reminderMins: '5' },
+]
+
+const DEFAULT_FLAGS_CONST = [
+  { id: 'far_location', name: 'Clock in/out too far from work location', description: 'Flag when a worker clocks in or out beyond the allowed distance from the store.', enabled: true, conditionLabel: 'Flag when distance exceeds', conditionValue: '500', conditionUnit: 'feet' },
+  { id: 'long_shift', name: 'Shift exceeds maximum duration', description: 'Flag shifts that run longer than the allowed threshold.', enabled: true, conditionLabel: 'Flag when shift exceeds', conditionValue: '9', conditionUnit: 'hrs' },
+  { id: 'clock_in_location_missing', name: 'Clock-in location not captured', description: 'Flag when GPS or location data is unavailable at clock-in.', enabled: true, conditionLabel: null, conditionValue: null, conditionUnit: null },
+  { id: 'clock_out_location_missing', name: 'Clock-out location not captured', description: 'Flag when GPS or location data is unavailable at clock-out.', enabled: true, conditionLabel: null, conditionValue: null, conditionUnit: null },
+  { id: 'break_end_missing', name: 'Break not ended', description: 'Flag when a worker starts a break but never records ending it.', enabled: true, conditionLabel: null, conditionValue: null, conditionUnit: null },
+  { id: 'clock_out_missing', name: 'Missing clock-out', description: 'Flag when a worker clocks in but never clocks out.', enabled: false, conditionLabel: null, conditionValue: null, conditionUnit: null },
+]
+
+// ============================================================
 // SETTINGS SCREEN
 // ============================================================
+
+// Default state shapes for each page — used to initialize a fresh scope
+const DEFAULT_PAGE_VALUES = {
+  breaks:           { rules: [], hasBreakRules: false },
+  overtime:         { configured: false, weeklyHrs: '40', dailyHrs: '0', doubleHrs: '0' },
+  pay_schedule:     { frequency: 'Bi-weekly', periodStart: 'Feb 1, 2026', startTime: '12:00 AM' },
+  scheduling_hours: { sameHours: true, sharedStart: '9:00 AM', sharedEnd: '5:00 PM', workweekStart: 'Monday',
+                      hours: Object.fromEntries(['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].map(d => [d,
+                        d === 'Sat' || d === 'Sun' ? { start: '9:00 AM', end: '5:00 PM', closed: true }
+                                                  : { start: '9:00 AM', end: '5:00 PM', closed: false }
+                      ])) },
+  shift_enforcement:{ earlyClockIn: false, earlyMins: '', geofence: true },
+  shifts_and_flags: { openShifts: false, visibility: 'roles', flags: DEFAULT_FLAGS_CONST },
+  clock_settings:   { autoClockOut: true, clockOutTime: '02:00 AM', timeRounding: true, roundMins: '15' },
+  shared_device:    { biometrics: true, pin: '482901' },
+}
 
 function SettingsScreen({ onBack }) {
   const [category, setCategory] = useState('scheduling')
@@ -258,25 +292,58 @@ function SettingsScreen({ onBack }) {
     ? LOCATIONS.find(l => l.id === selectedScope.id)
     : null
 
-  // Simulated compliance state — toggled when user applies defaults
-  const [hasBreakRules, setHasBreakRules] = useState(false)
-  const [hasOvertimeConfig, setHasOvertimeConfig] = useState(false)
-  const isCompliant = hasBreakRules && hasOvertimeConfig
+  // Scope ID helper — key for all scope-keyed maps
+  const getScopeId = () => selectedScope.type === 'company' ? 'company' : selectedScope.id
 
-  // Lock state: tracks whether each (scope, settingKey) is locked (inheriting) or unlocked (custom)
-  // Key format: `${scopeId}:${settingKey}`
+  // ── Per-scope saved values ──────────────────────────────────────────
+  // savedValues[scopeId][pageId] = last explicitly saved snapshot
+  // workingValues[scopeId][pageId] = live form state (synced by each page)
+  const [savedValues, setSavedValues] = useState({})
+  const [workingValues, setWorkingValues] = useState({})
+
+  // Called by each page on every state change to keep parent in sync
+  const syncValues = (pageId, values) => {
+    const scopeId = getScopeId()
+    setWorkingValues(prev => ({
+      ...prev,
+      [scopeId]: { ...(prev[scopeId] || {}), [pageId]: values }
+    }))
+  }
+
+  // Resolve inherited values for a page by walking up the scope chain:
+  // location → its group → company → hardcoded defaults
+  const resolveInheritedValues = (pageId) => {
+    if (isLocationScope && selectedGroup) {
+      // Location inherits from its group, which inherits from company
+      return (
+        savedValues[selectedGroup.id]?.[pageId] ??
+        savedValues['company']?.[pageId] ??
+        DEFAULT_PAGE_VALUES[pageId]
+      )
+    }
+    if (isGroupScope) {
+      return savedValues['company']?.[pageId] ?? DEFAULT_PAGE_VALUES[pageId]
+    }
+    return DEFAULT_PAGE_VALUES[pageId]
+  }
+
+  // Get initial values for a page in the current scope.
+  // If the scope has its own saved values, use those.
+  // Otherwise fall back through the parent chain (cascading inheritance).
+  const getInitialValues = (pageId) => {
+    const scopeId = getScopeId()
+    return savedValues[scopeId]?.[pageId] ?? resolveInheritedValues(pageId)
+  }
+
+  // ── Lock state ──────────────────────────────────────────────────────
   const [lockedPages, setLockedPages] = useState({})
 
-  const _getLockKey = (settingKey) => {
-    const id = selectedScope.type === 'company' ? 'company' : selectedScope.id
-    return `${id}:${settingKey}`
-  }
+  const _getLockKey = (settingKey) => `${getScopeId()}:${settingKey}`
 
   const isPageLocked = (settingKey) => {
     if (isCompanyScope) return false
     const key = _getLockKey(settingKey)
     if (key in lockedPages) return lockedPages[key]
-    // Default: locked if no existing override in mock data
     if (isGroupScope) return !selectedGroup?.overrides?.[settingKey]
     if (isLocationScope) return !selectedLocation?.overrides?.[settingKey]
     return true
@@ -285,13 +352,23 @@ function SettingsScreen({ onBack }) {
   const setPageLocked = (settingKey, locked) => {
     const key = _getLockKey(settingKey)
     setLockedPages(prev => ({ ...prev, [key]: locked }))
-    if (locked) setIsDirty(false) // reverting clears unsaved state
+    if (locked) setIsDirty(false)
   }
 
-  // Dirty state tracking for unsaved changes
+  // ── Compliance (derived from saved breaks/overtime per scope) ───────
+  const scopeId = getScopeId()
+  const savedBreaks = savedValues[scopeId]?.breaks
+  const savedOvertime = savedValues[scopeId]?.overtime
+  const hasBreakRules = (savedBreaks?.hasBreakRules) || (savedBreaks?.rules?.length > 0) || false
+  const hasOvertimeConfig = savedOvertime?.configured || false
+  const isCompliant = hasBreakRules && hasOvertimeConfig
+
+  // ── Dirty / nav state ───────────────────────────────────────────────
   const [isDirty, setIsDirty] = useState(false)
   const [pendingNav, setPendingNav] = useState(null)
   const [showToast, setShowToast] = useState(false)
+  // discardKey: incrementing this remounts ContentRouter, resetting pages to saved values
+  const [discardKey, setDiscardKey] = useState(0)
   const toastTimer = useRef(null)
 
   const markDirty = () => setIsDirty(true)
@@ -305,31 +382,58 @@ function SettingsScreen({ onBack }) {
 
   const handleNav = (cat, itm) => {
     if (cat === category && itm === item) return
-    if (isDirty) {
-      setPendingNav({ cat, itm })
-      return
-    }
+    if (isDirty) { setPendingNav({ cat, itm }); return }
     setCategory(cat)
     setItem(itm)
   }
 
-  const handleSave = () => { markClean(); triggerToast() }
-  const handleDiscardInPlace = () => { markClean() }
+  const handleSave = () => {
+    // Snapshot working → saved for the current scope
+    const sid = getScopeId()
+    setSavedValues(prev => ({
+      ...prev,
+      [sid]: { ...(prev[sid] || {}), ...(workingValues[sid] || {}) }
+    }))
+    markClean()
+    triggerToast()
+  }
+
+  const handleDiscardInPlace = () => {
+    // Increment discardKey to remount ContentRouter, pages re-init from saved values
+    setDiscardKey(k => k + 1)
+    markClean()
+  }
+
   const handleSaveAndContinue = () => {
-    markClean(); triggerToast()
+    handleSave()
     if (pendingNav) { setCategory(pendingNav.cat); setItem(pendingNav.itm); setPendingNav(null) }
   }
+
   const handleDiscard = () => {
+    setDiscardKey(k => k + 1)
     markClean()
     if (pendingNav) { setCategory(pendingNav.cat); setItem(pendingNav.itm); setPendingNav(null) }
   }
+
   const handleGoBack = () => { setPendingNav(null) }
 
-  const handleApplyBreaks = () => { setHasBreakRules(true) }
-  const handleApplyOvertime = () => { setHasOvertimeConfig(true) }
-  const handleApplyAll = () => { setHasBreakRules(true); setHasOvertimeConfig(true) }
+  // Compliance wizard apply — also writes into saved + working values
+  const handleApplyBreaks = () => {
+    const sid = getScopeId()
+    const v = { rules: DEFAULT_BREAK_RULES_CONST, hasBreakRules: true }
+    setSavedValues(prev => ({ ...prev, [sid]: { ...(prev[sid] || {}), breaks: v } }))
+    setWorkingValues(prev => ({ ...prev, [sid]: { ...(prev[sid] || {}), breaks: v } }))
+    setDiscardKey(k => k + 1) // remount breaks page with new saved values
+  }
+  const handleApplyOvertime = () => {
+    const sid = getScopeId()
+    const v = { configured: true, weeklyHrs: '40', dailyHrs: '8', doubleHrs: '12' }
+    setSavedValues(prev => ({ ...prev, [sid]: { ...(prev[sid] || {}), overtime: v } }))
+    setWorkingValues(prev => ({ ...prev, [sid]: { ...(prev[sid] || {}), overtime: v } }))
+    setDiscardKey(k => k + 1)
+  }
+  const handleApplyAll = () => { handleApplyBreaks(); handleApplyOvertime() }
 
-  // Build scope context object passed to all pages
   const scopeContext = {
     selectedScope,
     isCompanyScope,
@@ -341,6 +445,8 @@ function SettingsScreen({ onBack }) {
     onChangeScope: setSelectedScope,
     isPageLocked,
     setPageLocked,
+    syncValues,
+    getInitialValues,
   }
 
   return (
@@ -357,7 +463,6 @@ function SettingsScreen({ onBack }) {
         onSelectScope={setSelectedScope}
       />
       <div className="settings-content">
-        {/* Compliance banner */}
         {!isCompliant && (
           <div className="compliance-banner" onClick={() => setShowComplianceWizard(true)}>
             <div className="compliance-banner-left">
@@ -365,11 +470,8 @@ function SettingsScreen({ onBack }) {
               <div className="compliance-banner-text">
                 <strong>Compliance issues detected</strong>
                 <span>Your settings may not comply with state labor law. Review {
-                  !hasBreakRules && !hasOvertimeConfig
-                    ? 'break rules and overtime thresholds'
-                    : !hasBreakRules
-                    ? 'break rules'
-                    : 'overtime thresholds'
+                  !hasBreakRules && !hasOvertimeConfig ? 'break rules and overtime thresholds'
+                  : !hasBreakRules ? 'break rules' : 'overtime thresholds'
                 } to fix.</span>
               </div>
             </div>
@@ -379,6 +481,7 @@ function SettingsScreen({ onBack }) {
 
         <div className="content-scroll">
           <ContentRouter
+            key={`${getScopeId()}-${discardKey}`}
             category={category}
             item={item}
             scopeContext={scopeContext}
@@ -814,27 +917,65 @@ function WizardPreviewCard({ title, details }) {
 // CONTENT ROUTER
 // ============================================================
 
+// All pages are rendered simultaneously; inactive ones are hidden with display:none.
+// This keeps their state alive while navigating between pages within the same scope.
+// The parent's key prop (scopeId + discardKey) remounts everything on scope change or discard.
 function ContentRouter({ category, item, scopeContext, hasBreakRules, hasOvertimeConfig, onApplyBreaks, onApplyOvertime }) {
   const sc = scopeContext
-  if (category === 'scheduling') {
-    if (item === 'breaks') return <BreaksPage hasBreakRules={hasBreakRules} onApply={onApplyBreaks} scopeContext={sc} />
-    if (item === 'overtime') return <OvertimePage hasOvertimeConfig={hasOvertimeConfig} onApply={onApplyOvertime} scopeContext={sc} />
-    if (item === 'scheduling_hours') return <SchedulingHoursPage scopeContext={sc} />
-    if (item === 'shifts_and_flags') return <ShiftsAndFlagsPage scopeContext={sc} />
-  }
-  if (category === 'time_clock') {
-    if (item === 'shift_enforcement') return <ShiftEnforcementPage scopeContext={sc} />
-    if (item === 'clock_settings') return <ClockSettingsPage scopeContext={sc} />
-    if (item === 'shared_device') return <SharedDevicePage scopeContext={sc} />
-  }
-  if (category === 'payroll') {
-    if (item === 'pay_schedule') return <PaySchedulePage scopeContext={sc} />
-    return <PlaceholderPage title="Payroll integration" />
-  }
-  if (category === 'reference') {
-    if (item === 'design_reference') return <DesignReferencePage />
-  }
-  return <PlaceholderPage title={item.replace(/_/g, ' ')} />
+  const is = (c, i) => category === c && item === i
+
+  // Pages that have a real implementation
+  const PAGES = [
+    { cat: 'scheduling',  id: 'breaks' },
+    { cat: 'scheduling',  id: 'overtime' },
+    { cat: 'scheduling',  id: 'scheduling_hours' },
+    { cat: 'scheduling',  id: 'shifts_and_flags' },
+    { cat: 'time_clock',  id: 'shift_enforcement' },
+    { cat: 'time_clock',  id: 'clock_settings' },
+    { cat: 'time_clock',  id: 'shared_device' },
+    { cat: 'payroll',     id: 'pay_schedule' },
+    { cat: 'reference',   id: 'design_reference' },
+  ]
+
+  const isKnown = PAGES.some(p => is(p.cat, p.id))
+
+  return (
+    <>
+      <div style={{ display: is('scheduling','breaks') ? 'contents' : 'none' }}>
+        <BreaksPage hasBreakRules={hasBreakRules} onApply={onApplyBreaks} scopeContext={sc} />
+      </div>
+      <div style={{ display: is('scheduling','overtime') ? 'contents' : 'none' }}>
+        <OvertimePage hasOvertimeConfig={hasOvertimeConfig} onApply={onApplyOvertime} scopeContext={sc} />
+      </div>
+      <div style={{ display: is('scheduling','scheduling_hours') ? 'contents' : 'none' }}>
+        <SchedulingHoursPage scopeContext={sc} />
+      </div>
+      <div style={{ display: is('scheduling','shifts_and_flags') ? 'contents' : 'none' }}>
+        <ShiftsAndFlagsPage scopeContext={sc} />
+      </div>
+      <div style={{ display: is('time_clock','shift_enforcement') ? 'contents' : 'none' }}>
+        <ShiftEnforcementPage scopeContext={sc} />
+      </div>
+      <div style={{ display: is('time_clock','clock_settings') ? 'contents' : 'none' }}>
+        <ClockSettingsPage scopeContext={sc} />
+      </div>
+      <div style={{ display: is('time_clock','shared_device') ? 'contents' : 'none' }}>
+        <SharedDevicePage scopeContext={sc} />
+      </div>
+      <div style={{ display: is('payroll','pay_schedule') ? 'contents' : 'none' }}>
+        <PaySchedulePage scopeContext={sc} />
+      </div>
+      <div style={{ display: category === 'payroll' && item !== 'pay_schedule' ? 'contents' : 'none' }}>
+        <PlaceholderPage title="Payroll integration" />
+      </div>
+      <div style={{ display: is('reference','design_reference') ? 'contents' : 'none' }}>
+        <DesignReferencePage />
+      </div>
+      {!isKnown && category !== 'payroll' && category !== 'reference' && (
+        <PlaceholderPage title={item.replace(/_/g, ' ')} />
+      )}
+    </>
+  )
 }
 
 // ============================================================
@@ -1160,17 +1301,17 @@ function ComplianceModule({ status, onAutoApply, emptyIcon: EmptyIcon, emptyTitl
 // BREAKS PAGE
 // ============================================================
 
-const DEFAULT_BREAK_RULES = [
-  { id: 1, name: 'Meal Break', roles: [], type: 'Unpaid', shiftDuration: '5', breakDuration: '30', earliest: '5', latest: '6', required: true, waivable: false, allowEarlyEnd: false, sendReminder: false, reminderMins: '10' },
-  { id: 2, name: 'Rest Break', roles: [], type: 'Paid', shiftDuration: '4', breakDuration: '10', earliest: '3', latest: '4.5', required: true, waivable: false, allowEarlyEnd: true, sendReminder: true, reminderMins: '5' },
-]
+const DEFAULT_BREAK_RULES = DEFAULT_BREAK_RULES_CONST
 
 function BreaksPage({ hasBreakRules, onApply, scopeContext }) {
-  const { markDirty, isPageLocked } = scopeContext
+  const { markDirty, isPageLocked, syncValues, getInitialValues } = scopeContext
   const locked = isPageLocked('breaks')
-  const [rules, setRules] = useState(hasBreakRules ? DEFAULT_BREAK_RULES : [])
+  const init = getInitialValues('breaks')
+  const [rules, setRules] = useState(init.rules)
   const [editingRule, setEditingRule] = useState(null)
-  const [wasEverCompliant, setWasEverCompliant] = useState(hasBreakRules)
+  const [wasEverCompliant, setWasEverCompliant] = useState(init.hasBreakRules || init.rules.length > 0)
+
+  useEffect(() => { syncValues('breaks', { rules, hasBreakRules: rules.length > 0 }) }, [rules])
 
   const handleAutoApply = () => {
     onApply()
@@ -1599,12 +1740,15 @@ function BreakRuleEditor({ rule, onSave, onDelete, onBack }) {
 // ============================================================
 
 function OvertimePage({ hasOvertimeConfig, onApply, scopeContext }) {
-  const { markDirty, isPageLocked } = scopeContext
+  const { markDirty, isPageLocked, syncValues, getInitialValues } = scopeContext
   const locked = isPageLocked('overtime')
-  const [configured, setConfigured] = useState(hasOvertimeConfig)
-  const [weeklyHrs, setWeeklyHrs] = useState('40')
-  const [dailyHrs, setDailyHrs] = useState('0')
-  const [doubleHrs, setDoubleHrs] = useState('0')
+  const init = getInitialValues('overtime')
+  const [configured, setConfigured] = useState(init.configured)
+  const [weeklyHrs, setWeeklyHrs] = useState(init.weeklyHrs)
+  const [dailyHrs, setDailyHrs] = useState(init.dailyHrs)
+  const [doubleHrs, setDoubleHrs] = useState(init.doubleHrs)
+
+  useEffect(() => { syncValues('overtime', { configured, weeklyHrs, dailyHrs, doubleHrs }) }, [configured, weeklyHrs, dailyHrs, doubleHrs])
 
   const handleAutoApply = () => {
     onApply()
@@ -1661,11 +1805,14 @@ function OvertimePage({ hasOvertimeConfig, onApply, scopeContext }) {
 // ============================================================
 
 function ShiftEnforcementPage({ scopeContext }) {
-  const { markDirty, isPageLocked } = scopeContext
+  const { markDirty, isPageLocked, syncValues, getInitialValues } = scopeContext
   const locked = isPageLocked('earlyClockIn')
-  const [earlyClockIn, setEarlyClockIn] = useState(false)
-  const [earlyMins, setEarlyMins] = useState('')
-  const [geofence, setGeofence] = useState(true)
+  const init = getInitialValues('shift_enforcement')
+  const [earlyClockIn, setEarlyClockIn] = useState(init.earlyClockIn)
+  const [earlyMins, setEarlyMins] = useState(init.earlyMins)
+  const [geofence, setGeofence] = useState(init.geofence)
+
+  useEffect(() => { syncValues('shift_enforcement', { earlyClockIn, earlyMins, geofence }) }, [earlyClockIn, earlyMins, geofence])
 
   return (
     <div className="content-inner">
@@ -1724,21 +1871,17 @@ function ShiftEnforcementPage({ scopeContext }) {
 // SHIFTS & FLAGS PAGE (was "Advanced Scheduling")
 // ============================================================
 
-const DEFAULT_FLAGS = [
-  { id: 'far_location', name: 'Clock in/out too far from work location', description: 'Flag when a worker clocks in or out beyond the allowed distance from the store.', enabled: true, conditionLabel: 'Flag when distance exceeds', conditionValue: '500', conditionUnit: 'feet' },
-  { id: 'long_shift', name: 'Shift exceeds maximum duration', description: 'Flag shifts that run longer than the allowed threshold.', enabled: true, conditionLabel: 'Flag when shift exceeds', conditionValue: '9', conditionUnit: 'hrs' },
-  { id: 'clock_in_location_missing', name: 'Clock-in location not captured', description: 'Flag when GPS or location data is unavailable at clock-in.', enabled: true, conditionLabel: null, conditionValue: null, conditionUnit: null },
-  { id: 'clock_out_location_missing', name: 'Clock-out location not captured', description: 'Flag when GPS or location data is unavailable at clock-out.', enabled: true, conditionLabel: null, conditionValue: null, conditionUnit: null },
-  { id: 'break_end_missing', name: 'Break not ended', description: 'Flag when a worker starts a break but never records ending it.', enabled: true, conditionLabel: null, conditionValue: null, conditionUnit: null },
-  { id: 'clock_out_missing', name: 'Missing clock-out', description: 'Flag when a worker clocks in but never clocks out.', enabled: false, conditionLabel: null, conditionValue: null, conditionUnit: null },
-]
+const DEFAULT_FLAGS = DEFAULT_FLAGS_CONST
 
 function ShiftsAndFlagsPage({ scopeContext }) {
-  const { markDirty, isPageLocked } = scopeContext
+  const { markDirty, isPageLocked, syncValues, getInitialValues } = scopeContext
   const locked = isPageLocked('shiftsFlags')
-  const [openShifts, setOpenShifts] = useState(false)
-  const [visibility, setVisibility] = useState('roles')
-  const [flags, setFlags] = useState(DEFAULT_FLAGS)
+  const init = getInitialValues('shifts_and_flags')
+  const [openShifts, setOpenShifts] = useState(init.openShifts)
+  const [visibility, setVisibility] = useState(init.visibility)
+  const [flags, setFlags] = useState(init.flags)
+
+  useEffect(() => { syncValues('shifts_and_flags', { openShifts, visibility, flags }) }, [openShifts, visibility, flags])
 
   const toggleFlag = (id) => {
     setFlags(flags.map(f => f.id === id ? { ...f, enabled: !f.enabled } : f))
@@ -1824,11 +1967,14 @@ function ShiftsAndFlagsPage({ scopeContext }) {
 // ============================================================
 
 function PaySchedulePage({ scopeContext }) {
-  const { markDirty, isPageLocked } = scopeContext
+  const { markDirty, isPageLocked, syncValues, getInitialValues } = scopeContext
   const locked = isPageLocked('paySchedule')
-  const [frequency, setFrequency] = useState('Bi-weekly')
-  const [periodStart, setPeriodStart] = useState('Feb 1, 2026')
-  const [startTime, setStartTime] = useState('12:00 AM')
+  const init = getInitialValues('pay_schedule')
+  const [frequency, setFrequency] = useState(init.frequency)
+  const [periodStart, setPeriodStart] = useState(init.periodStart)
+  const [startTime, setStartTime] = useState(init.startTime)
+
+  useEffect(() => { syncValues('pay_schedule', { frequency, periodStart, startTime }) }, [frequency, periodStart, startTime])
 
   return (
     <div className="content-inner">
@@ -1856,22 +2002,19 @@ function PaySchedulePage({ scopeContext }) {
 // ============================================================
 
 function SchedulingHoursPage({ scopeContext }) {
-  const { markDirty, isPageLocked } = scopeContext
+  const { markDirty, isPageLocked, syncValues, getInitialValues } = scopeContext
   const locked = isPageLocked('operatingHours')
-  const [workweekStart, setWorkweekStart] = useState('Monday')
-  const [sameHours, setSameHours] = useState(true)
+  const init = getInitialValues('scheduling_hours')
+  const [workweekStart, setWorkweekStart] = useState(init.workweekStart)
+  const [sameHours, setSameHours] = useState(init.sameHours)
   const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 
-  const [sharedStart, setSharedStart] = useState('9:00 AM')
-  const [sharedEnd, setSharedEnd] = useState('5:00 PM')
+  const [sharedStart, setSharedStart] = useState(init.sharedStart)
+  const [sharedEnd, setSharedEnd] = useState(init.sharedEnd)
 
-  const [hours, setHours] = useState(
-    Object.fromEntries(DAYS.map(d => [d,
-      d === 'Sat' || d === 'Sun'
-        ? { start: '9:00 AM', end: '5:00 PM', closed: true }
-        : { start: '9:00 AM', end: '5:00 PM', closed: false }
-    ]))
-  )
+  const [hours, setHours] = useState(init.hours)
+
+  useEffect(() => { syncValues('scheduling_hours', { sameHours, sharedStart, sharedEnd, workweekStart, hours }) }, [sameHours, sharedStart, sharedEnd, workweekStart, hours])
 
   const updateDay = (day, field, value) => {
     setHours(prev => ({ ...prev, [day]: { ...prev[day], [field]: value } }))
@@ -1964,12 +2107,15 @@ function DayHoursRow({ day, start, end, closed, onChangeStart, onChangeEnd, onTo
 // ============================================================
 
 function ClockSettingsPage({ scopeContext }) {
-  const { markDirty, isPageLocked } = scopeContext
+  const { markDirty, isPageLocked, syncValues, getInitialValues } = scopeContext
   const locked = isPageLocked('timeRounding')
-  const [autoClockOut, setAutoClockOut] = useState(true)
-  const [clockOutTime, setClockOutTime] = useState('02:00 AM')
-  const [timeRounding, setTimeRounding] = useState(true)
-  const [roundMins, setRoundMins] = useState('15')
+  const init = getInitialValues('clock_settings')
+  const [autoClockOut, setAutoClockOut] = useState(init.autoClockOut)
+  const [clockOutTime, setClockOutTime] = useState(init.clockOutTime)
+  const [timeRounding, setTimeRounding] = useState(init.timeRounding)
+  const [roundMins, setRoundMins] = useState(init.roundMins)
+
+  useEffect(() => { syncValues('clock_settings', { autoClockOut, clockOutTime, timeRounding, roundMins }) }, [autoClockOut, clockOutTime, timeRounding, roundMins])
 
   return (
     <div className="content-inner">
@@ -2034,10 +2180,13 @@ function ClockSettingsPage({ scopeContext }) {
 // ============================================================
 
 function SharedDevicePage({ scopeContext }) {
-  const { markDirty } = scopeContext
-  const [biometrics, setBiometrics] = useState(true)
-  const [pin, setPin] = useState('482901')
+  const { markDirty, syncValues, getInitialValues } = scopeContext
+  const init = getInitialValues('shared_device')
+  const [biometrics, setBiometrics] = useState(init.biometrics)
+  const [pin, setPin] = useState(init.pin)
   const [pinVisible, setPinVisible] = useState(false)
+
+  useEffect(() => { syncValues('shared_device', { biometrics, pin }) }, [biometrics, pin])
 
   return (
     <div className="content-inner">
