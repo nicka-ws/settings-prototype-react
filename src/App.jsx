@@ -254,24 +254,30 @@ const DEFAULT_FLAGS_CONST = [
 // ============================================================
 
 // Default state shapes for each page — used to initialize a fresh scope
+const DEFAULT_LOCATION_SETTINGS = {
+  sameHours: true, sharedStart: '9:00 AM', sharedEnd: '5:00 PM', workweekStart: 'Monday',
+  hours: Object.fromEntries(['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].map(d => [d,
+    d === 'Sat' || d === 'Sun' ? { start: '9:00 AM', end: '5:00 PM', closed: true }
+                              : { start: '9:00 AM', end: '5:00 PM', closed: false }
+  ])),
+  geoAddress: '123 Main St, San Francisco, CA',
+  sharedPin: '482901',
+  active: true,
+}
+
 const DEFAULT_PAGE_VALUES = {
   breaks:           { rules: [], hasBreakRules: false },
   overtime:         { configured: false, weeklyHrs: '40', dailyHrs: '0', doubleHrs: '0' },
   pay_schedule:     { frequency: 'Bi-weekly', periodStart: 'Feb 1, 2026', startTime: '12:00 AM' },
-  scheduling_hours: { sameHours: true, sharedStart: '9:00 AM', sharedEnd: '5:00 PM', workweekStart: 'Monday',
-                      hours: Object.fromEntries(['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].map(d => [d,
-                        d === 'Sat' || d === 'Sun' ? { start: '9:00 AM', end: '5:00 PM', closed: true }
-                                                  : { start: '9:00 AM', end: '5:00 PM', closed: false }
-                      ])) },
-  shift_enforcement:{ earlyClockIn: false, earlyMins: '', geofence: true },
-  shifts_and_flags: { openShifts: false, visibility: 'roles', flags: DEFAULT_FLAGS_CONST },
-  clock_settings:   { autoClockOut: true, clockOutTime: '02:00 AM', timeRounding: true, roundMins: '15' },
-  shared_device:    { biometrics: true, pin: '482901' },
+  shift_pool:       { openShifts: false, visibility: 'roles' },
+  shift_enforcement:{ earlyClockIn: false, earlyMins: '', geofence: true,
+                      autoClockOut: true, clockOutTime: '02:00 AM', timeRounding: true, roundMins: '15',
+                      flags: DEFAULT_FLAGS_CONST },
 }
 
 function SettingsScreen({ onBack }) {
-  const [category, setCategory] = useState('scheduling')
-  const [item, setItem] = useState('breaks')
+  const [category, setCategory] = useState('time_and_scheduling')
+  const [item, setItem] = useState('shift_enforcement')
   const [showComplianceWizard, setShowComplianceWizard] = useState(false)
 
   // Scope: { type: 'company' } | { type: 'group', id } | { type: 'location', id }
@@ -355,12 +361,17 @@ function SettingsScreen({ onBack }) {
     if (locked) setIsDirty(false)
   }
 
-  // ── Compliance (derived from saved breaks/overtime per scope) ───────
-  const scopeId = getScopeId()
-  const savedBreaks = savedValues[scopeId]?.breaks
-  const savedOvertime = savedValues[scopeId]?.overtime
-  const hasBreakRules = (savedBreaks?.hasBreakRules) || (savedBreaks?.rules?.length > 0) || false
-  const hasOvertimeConfig = savedOvertime?.configured || false
+  // ── Compliance (California-scoped only) ─────────────────────────────
+  // Only check compliance when the active scope is the California group or
+  // one of its locations. Company-wide, Texas, and New York scopes have no
+  // compliance requirements in this prototype so they always read as compliant.
+  // Uses getInitialValues (not savedValues[scopeId] directly) so that
+  // compliance resolved at a parent scope cascades to child scopes.
+  const isCaliforniaScope = selectedGroup?.id === 'california'
+  const effectiveBreaks = getInitialValues('breaks')
+  const effectiveOvertime = getInitialValues('overtime')
+  const hasBreakRules = !isCaliforniaScope || (effectiveBreaks?.hasBreakRules) || (effectiveBreaks?.rules?.length > 0) || false
+  const hasOvertimeConfig = !isCaliforniaScope || effectiveOvertime?.configured || false
   const isCompliant = hasBreakRules && hasOvertimeConfig
 
   // ── Dirty / nav state ───────────────────────────────────────────────
@@ -449,6 +460,25 @@ function SettingsScreen({ onBack }) {
     getInitialValues,
   }
 
+  // Compute real override counts per location from live lockedPages state,
+  // falling back to the static mock overrides for settings not yet interacted with.
+  const locationOverrideCounts = Object.fromEntries(
+    LOCATIONS.map(loc => {
+      const prefix = loc.id + ':'
+      const unlocked = new Set(
+        Object.entries(loc.overrides || {}).filter(([, v]) => v).map(([k]) => k)
+      )
+      Object.entries(lockedPages)
+        .filter(([k]) => k.startsWith(prefix))
+        .forEach(([k, v]) => {
+          const settingKey = k.slice(prefix.length)
+          if (v === false) unlocked.add(settingKey)
+          else unlocked.delete(settingKey)
+        })
+      return [loc.id, unlocked.size]
+    })
+  )
+
   return (
     <>
       <SettingsNav
@@ -461,6 +491,9 @@ function SettingsScreen({ onBack }) {
         onBack={onBack}
         selectedScope={selectedScope}
         onSelectScope={setSelectedScope}
+        locationOverrideCounts={locationOverrideCounts}
+        isCompanyScope={isCompanyScope}
+        isPageLocked={isPageLocked}
       />
       <div className="settings-content">
         {!isCompliant && (
@@ -487,6 +520,7 @@ function SettingsScreen({ onBack }) {
             scopeContext={scopeContext}
             hasBreakRules={hasBreakRules}
             hasOvertimeConfig={hasOvertimeConfig}
+            isCaliforniaScope={isCaliforniaScope}
             onApplyBreaks={handleApplyBreaks}
             onApplyOvertime={handleApplyOvertime}
           />
@@ -579,7 +613,7 @@ function SaveToast({ onClose }) {
 // SCOPE PICKER (hierarchical: Company → Policy Groups → Locations)
 // ============================================================
 
-function ScopePicker({ selectedScope, onSelect }) {
+function ScopePicker({ selectedScope, onSelect, locationOverrideCounts }) {
   const [open, setOpen] = useState(false)
   const ref = useRef(null)
 
@@ -658,7 +692,7 @@ function ScopePicker({ selectedScope, onSelect }) {
                 {/* Nested child locations */}
                 <div className="scope-picker-children">
                   {groupLocs.map(loc => {
-                    const overrideCount = Object.keys(loc.overrides || {}).length
+                    const overrideCount = locationOverrideCounts?.[loc.id] ?? Object.keys(loc.overrides || {}).length
                     return (
                       <div
                         key={loc.id}
@@ -701,23 +735,25 @@ const NAV = [
   },
   {
     title: 'Payroll', category: 'payroll', items: [
-      { id: 'pay_schedule', label: 'Pay schedule' },
+      { id: 'pay_schedule', label: 'Pay schedule', settingKey: 'paySchedule' },
       { id: 'payroll_other', label: 'Payroll integration' },
     ]
   },
   {
-    title: 'Scheduling', category: 'scheduling', items: [
-      { id: 'breaks', label: 'Breaks', complianceKey: 'breaks' },
-      { id: 'overtime', label: 'Overtime', complianceKey: 'overtime' },
-      { id: 'scheduling_hours', label: 'Hours & workweek' },
-      { id: 'shifts_and_flags', label: 'Shifts & flags' },
+    title: 'Time and Scheduling', category: 'time_and_scheduling', items: [
+      { id: 'shift_pool', label: 'Shift pool', settingKey: 'shiftsFlags' },
+      { id: 'shift_enforcement', label: 'Shift enforcement', settingKey: 'earlyClockIn' },
     ]
   },
   {
-    title: 'Time clock', category: 'time_clock', items: [
-      { id: 'shift_enforcement', label: 'Shift enforcement' },
-      { id: 'clock_settings', label: 'Time tracking' },
-      { id: 'shared_device', label: 'Shared device' },
+    title: 'Compliance', category: 'compliance', items: [
+      { id: 'overtime', label: 'Overtime', complianceKey: 'overtime', settingKey: 'overtime' },
+      { id: 'breaks', label: 'Breaks', complianceKey: 'breaks', settingKey: 'breaks' },
+    ]
+  },
+  {
+    title: 'Locations', category: 'locations', items: [
+      { id: 'manage_locations', label: 'Manage locations' },
     ]
   },
   {
@@ -727,7 +763,7 @@ const NAV = [
   },
 ]
 
-function SettingsNav({ category, item, isCompliant, hasBreakRules, hasOvertimeConfig, onNav, onBack, selectedScope, onSelectScope }) {
+function SettingsNav({ category, item, isCompliant, hasBreakRules, hasOvertimeConfig, onNav, onBack, selectedScope, onSelectScope, locationOverrideCounts, isCompanyScope, isPageLocked }) {
   return (
     <nav className="settings-nav">
       {/* Back header */}
@@ -744,7 +780,7 @@ function SettingsNav({ category, item, isCompliant, hasBreakRules, hasOvertimeCo
 
       {/* Scope picker in sidebar */}
       <div className="settings-nav-scope">
-        <ScopePicker selectedScope={selectedScope} onSelect={onSelectScope} />
+        <ScopePicker selectedScope={selectedScope} onSelect={onSelectScope} locationOverrideCounts={locationOverrideCounts} />
       </div>
 
       {/* Nav sections */}
@@ -759,6 +795,7 @@ function SettingsNav({ category, item, isCompliant, hasBreakRules, hasOvertimeCo
                   (navItem.complianceKey === 'breaks' && !hasBreakRules) ||
                   (navItem.complianceKey === 'overtime' && !hasOvertimeConfig)
                 )
+                const showOverrideBadge = !isCompanyScope && navItem.settingKey && isPageLocked && !isPageLocked(navItem.settingKey)
                 return (
                   <div
                     key={navItem.id}
@@ -767,6 +804,7 @@ function SettingsNav({ category, item, isCompliant, hasBreakRules, hasOvertimeCo
                   >
                     {showDot && <span className="settings-nav-dot error" />}
                     <span>{navItem.label}</span>
+                    {showOverrideBadge && <span className="scope-picker-override-badge">override</span>}
                   </div>
                 )
               })}
@@ -920,53 +958,44 @@ function WizardPreviewCard({ title, details }) {
 // All pages are rendered simultaneously; inactive ones are hidden with display:none.
 // This keeps their state alive while navigating between pages within the same scope.
 // The parent's key prop (scopeId + discardKey) remounts everything on scope change or discard.
-function ContentRouter({ category, item, scopeContext, hasBreakRules, hasOvertimeConfig, onApplyBreaks, onApplyOvertime }) {
+function ContentRouter({ category, item, scopeContext, hasBreakRules, hasOvertimeConfig, isCaliforniaScope, onApplyBreaks, onApplyOvertime }) {
   const sc = scopeContext
   const is = (c, i) => category === c && item === i
 
-  // Pages that have a real implementation
   const PAGES = [
-    { cat: 'scheduling',  id: 'breaks' },
-    { cat: 'scheduling',  id: 'overtime' },
-    { cat: 'scheduling',  id: 'scheduling_hours' },
-    { cat: 'scheduling',  id: 'shifts_and_flags' },
-    { cat: 'time_clock',  id: 'shift_enforcement' },
-    { cat: 'time_clock',  id: 'clock_settings' },
-    { cat: 'time_clock',  id: 'shared_device' },
-    { cat: 'payroll',     id: 'pay_schedule' },
-    { cat: 'reference',   id: 'design_reference' },
+    { cat: 'compliance',          id: 'breaks' },
+    { cat: 'compliance',          id: 'overtime' },
+    { cat: 'time_and_scheduling', id: 'shift_pool' },
+    { cat: 'time_and_scheduling', id: 'shift_enforcement' },
+    { cat: 'payroll',             id: 'pay_schedule' },
+    { cat: 'locations',           id: 'manage_locations' },
+    { cat: 'reference',           id: 'design_reference' },
   ]
 
   const isKnown = PAGES.some(p => is(p.cat, p.id))
 
   return (
     <>
-      <div style={{ display: is('scheduling','breaks') ? 'contents' : 'none' }}>
-        <BreaksPage hasBreakRules={hasBreakRules} onApply={onApplyBreaks} scopeContext={sc} />
+      <div style={{ display: is('compliance','breaks') ? 'contents' : 'none' }}>
+        <BreaksPage hasBreakRules={hasBreakRules} isCaliforniaScope={isCaliforniaScope} onApply={onApplyBreaks} scopeContext={sc} />
       </div>
-      <div style={{ display: is('scheduling','overtime') ? 'contents' : 'none' }}>
-        <OvertimePage hasOvertimeConfig={hasOvertimeConfig} onApply={onApplyOvertime} scopeContext={sc} />
+      <div style={{ display: is('compliance','overtime') ? 'contents' : 'none' }}>
+        <OvertimePage hasOvertimeConfig={hasOvertimeConfig} isCaliforniaScope={isCaliforniaScope} onApply={onApplyOvertime} scopeContext={sc} />
       </div>
-      <div style={{ display: is('scheduling','scheduling_hours') ? 'contents' : 'none' }}>
-        <SchedulingHoursPage scopeContext={sc} />
+      <div style={{ display: is('time_and_scheduling','shift_pool') ? 'contents' : 'none' }}>
+        <ShiftPoolPage scopeContext={sc} />
       </div>
-      <div style={{ display: is('scheduling','shifts_and_flags') ? 'contents' : 'none' }}>
-        <ShiftsAndFlagsPage scopeContext={sc} />
-      </div>
-      <div style={{ display: is('time_clock','shift_enforcement') ? 'contents' : 'none' }}>
+      <div style={{ display: is('time_and_scheduling','shift_enforcement') ? 'contents' : 'none' }}>
         <ShiftEnforcementPage scopeContext={sc} />
-      </div>
-      <div style={{ display: is('time_clock','clock_settings') ? 'contents' : 'none' }}>
-        <ClockSettingsPage scopeContext={sc} />
-      </div>
-      <div style={{ display: is('time_clock','shared_device') ? 'contents' : 'none' }}>
-        <SharedDevicePage scopeContext={sc} />
       </div>
       <div style={{ display: is('payroll','pay_schedule') ? 'contents' : 'none' }}>
         <PaySchedulePage scopeContext={sc} />
       </div>
       <div style={{ display: category === 'payroll' && item !== 'pay_schedule' ? 'contents' : 'none' }}>
         <PlaceholderPage title="Payroll integration" />
+      </div>
+      <div style={{ display: is('locations','manage_locations') ? 'contents' : 'none' }}>
+        <ManageLocationsPage />
       </div>
       <div style={{ display: is('reference','design_reference') ? 'contents' : 'none' }}>
         <DesignReferencePage />
@@ -1303,7 +1332,7 @@ function ComplianceModule({ status, onAutoApply, emptyIcon: EmptyIcon, emptyTitl
 
 const DEFAULT_BREAK_RULES = DEFAULT_BREAK_RULES_CONST
 
-function BreaksPage({ hasBreakRules, onApply, scopeContext }) {
+function BreaksPage({ hasBreakRules, isCaliforniaScope, onApply, scopeContext }) {
   const { markDirty, isPageLocked, syncValues, getInitialValues } = scopeContext
   const locked = isPageLocked('breaks')
   const init = getInitialValues('breaks')
@@ -1374,19 +1403,21 @@ function BreaksPage({ hasBreakRules, onApply, scopeContext }) {
       </div>
 
       <div className={locked ? 'form-locked' : ''}>
-        <ComplianceModule
-          status={complianceStatus}
-          onAutoApply={handleAutoApply}
-          emptyIcon={Coffee}
-          emptyTitle="No break rules configured"
-          emptyDescription="Break rules help ensure your location complies with labor laws. We detected this location is in California and can auto-apply compliant rules."
-          compliantLabel="Compliant with California break requirements"
-          warningLabel="Missing required break rules"
-          warningDescription="California requires a 30-min meal break and a 10-min rest break. Add them manually or apply the defaults."
-          autoApplyLabel="Apply California defaults"
-          legalCode="Cal. Lab. Code §§ 226.7, 512"
-          legalSummary="Employers must provide a 30-minute unpaid meal break for shifts over 5 hours, and a paid 10-minute rest break for every 4 hours worked or major fraction thereof. Employees may waive a meal break if the shift is no more than 6 hours."
-        />
+        {isCaliforniaScope && (
+          <ComplianceModule
+            status={complianceStatus}
+            onAutoApply={handleAutoApply}
+            emptyIcon={Coffee}
+            emptyTitle="No break rules configured"
+            emptyDescription="Break rules help ensure your location complies with labor laws. We detected this location is in California and can auto-apply compliant rules."
+            compliantLabel="Compliant with California break requirements"
+            warningLabel="Missing required break rules"
+            warningDescription="California requires a 30-min meal break and a 10-min rest break. Add them manually or apply the defaults."
+            autoApplyLabel="Apply California defaults"
+            legalCode="Cal. Lab. Code §§ 226.7, 512"
+            legalSummary="Employers must provide a 30-minute unpaid meal break for shifts over 5 hours, and a paid 10-minute rest break for every 4 hours worked or major fraction thereof. Employees may waive a meal break if the shift is no more than 6 hours."
+          />
+        )}
 
         <SectionCard compact>
           {hasRules ? (
@@ -1739,7 +1770,7 @@ function BreakRuleEditor({ rule, onSave, onDelete, onBack }) {
 // OVERTIME PAGE (consolidated, same pattern)
 // ============================================================
 
-function OvertimePage({ hasOvertimeConfig, onApply, scopeContext }) {
+function OvertimePage({ hasOvertimeConfig, isCaliforniaScope, onApply, scopeContext }) {
   const { markDirty, isPageLocked, syncValues, getInitialValues } = scopeContext
   const locked = isPageLocked('overtime')
   const init = getInitialValues('overtime')
@@ -1776,19 +1807,21 @@ function OvertimePage({ hasOvertimeConfig, onApply, scopeContext }) {
       </div>
 
       <div className={locked ? 'form-locked' : ''}>
-        <ComplianceModule
-          status={complianceStatus}
-          onAutoApply={handleAutoApply}
-          emptyIcon={Timer}
-          emptyTitle="No overtime thresholds configured"
-          emptyDescription="Overtime thresholds determine when workers earn overtime pay. We detected this location is in California and can auto-apply compliant thresholds."
-          compliantLabel="Compliant with California overtime requirements"
-          warningLabel="Missing overtime thresholds"
-          warningDescription="California requires weekly (40 hr), daily (8 hr), and double OT (12 hr) thresholds."
-          autoApplyLabel="Apply California defaults"
-          legalCode="Cal. Lab. Code §§ 510, 511"
-          legalSummary="California requires overtime pay at 1.5x the regular rate for hours worked beyond 8 in a day or 40 in a week, and double-time pay for hours beyond 12 in a day. The 7th consecutive day worked in a workweek also triggers overtime."
-        />
+        {isCaliforniaScope && (
+          <ComplianceModule
+            status={complianceStatus}
+            onAutoApply={handleAutoApply}
+            emptyIcon={Timer}
+            emptyTitle="No overtime thresholds configured"
+            emptyDescription="Overtime thresholds determine when workers earn overtime pay. We detected this location is in California and can auto-apply compliant thresholds."
+            compliantLabel="Compliant with California overtime requirements"
+            warningLabel="Missing overtime thresholds"
+            warningDescription="California requires weekly (40 hr), daily (8 hr), and double OT (12 hr) thresholds."
+            autoApplyLabel="Apply California defaults"
+            legalCode="Cal. Lab. Code §§ 510, 511"
+            legalSummary="California requires overtime pay at 1.5x the regular rate for hours worked beyond 8 in a day or 40 in a week, and double-time pay for hours beyond 12 in a day. The 7th consecutive day worked in a workweek also triggers overtime."
+          />
+        )}
 
         <SettingsSection title="Thresholds" description="Set to 0 hours to disable a threshold.">
           <SettingValueRow label="Weekly overtime" description="Hours per week before 1.5x overtime" value={weeklyHrs} suffix="hrs" type="number" onChange={v => { setWeeklyHrs(v || '0'); setConfigured(true); markDirty() }} />
@@ -1811,15 +1844,32 @@ function ShiftEnforcementPage({ scopeContext }) {
   const [earlyClockIn, setEarlyClockIn] = useState(init.earlyClockIn)
   const [earlyMins, setEarlyMins] = useState(init.earlyMins)
   const [geofence, setGeofence] = useState(init.geofence)
+  const [autoClockOut, setAutoClockOut] = useState(init.autoClockOut)
+  const [clockOutTime, setClockOutTime] = useState(init.clockOutTime)
+  const [timeRounding, setTimeRounding] = useState(init.timeRounding)
+  const [roundMins, setRoundMins] = useState(init.roundMins)
+  const [flags, setFlags] = useState(init.flags ?? DEFAULT_FLAGS_CONST)
 
-  useEffect(() => { syncValues('shift_enforcement', { earlyClockIn, earlyMins, geofence }) }, [earlyClockIn, earlyMins, geofence])
+  useEffect(() => {
+    syncValues('shift_enforcement', { earlyClockIn, earlyMins, geofence, autoClockOut, clockOutTime, timeRounding, roundMins, flags })
+  }, [earlyClockIn, earlyMins, geofence, autoClockOut, clockOutTime, timeRounding, roundMins, flags])
+
+  const toggleFlag = (id) => {
+    setFlags(flags.map(f => f.id === id ? { ...f, enabled: !f.enabled } : f))
+    markDirty()
+  }
+
+  const updateFlagCondition = (id, value) => {
+    setFlags(flags.map(f => f.id === id ? { ...f, conditionValue: value } : f))
+    markDirty()
+  }
 
   return (
     <div className="content-inner">
       <div className="page-header">
         <div>
           <h1 className="page-title">Shift Enforcement</h1>
-          <p className="page-subtitle">Control when and where workers can clock in</p>
+          <p className="page-subtitle">Control when and where workers can clock in, time tracking, and shift alerts</p>
         </div>
         <OverrideLock settingKey="earlyClockIn" scopeContext={scopeContext} />
       </div>
@@ -1856,70 +1906,46 @@ function ShiftEnforcementPage({ scopeContext }) {
             enabled={geofence}
             onToggle={() => { setGeofence(!geofence); markDirty() }}
           />
-          {geofence && (
+        </SettingsSection>
+
+        <SettingsSection title="Auto clock-out" description="Automatically clock out workers who forget to clock out.">
+          <SettingToggleRow
+            label="Enable auto clock-out"
+            onDescription="When on, automatically clock out workers at a set time."
+            offDescription="When off, workers will not be automatically clocked out."
+            enabled={autoClockOut}
+            onToggle={() => { setAutoClockOut(!autoClockOut); markDirty() }}
+          />
+          {autoClockOut && (
             <SettingChildRow>
-              <SettingValueRow label="Location" description="The address used as the geofence center" value="123 Main St, San Francisco, CA" />
+              <SettingValueRow
+                label="Clock-out time"
+                description="Workers will be clocked out at this time"
+                value={clockOutTime}
+                onChange={v => { setClockOutTime(v); markDirty() }}
+                type="time"
+              />
             </SettingChildRow>
           )}
         </SettingsSection>
-      </div>
-    </div>
-  )
-}
 
-// ============================================================
-// SHIFTS & FLAGS PAGE (was "Advanced Scheduling")
-// ============================================================
-
-const DEFAULT_FLAGS = DEFAULT_FLAGS_CONST
-
-function ShiftsAndFlagsPage({ scopeContext }) {
-  const { markDirty, isPageLocked, syncValues, getInitialValues } = scopeContext
-  const locked = isPageLocked('shiftsFlags')
-  const init = getInitialValues('shifts_and_flags')
-  const [openShifts, setOpenShifts] = useState(init.openShifts)
-  const [visibility, setVisibility] = useState(init.visibility)
-  const [flags, setFlags] = useState(init.flags)
-
-  useEffect(() => { syncValues('shifts_and_flags', { openShifts, visibility, flags }) }, [openShifts, visibility, flags])
-
-  const toggleFlag = (id) => {
-    setFlags(flags.map(f => f.id === id ? { ...f, enabled: !f.enabled } : f))
-    markDirty()
-  }
-
-  const updateFlagCondition = (id, value) => {
-    setFlags(flags.map(f => f.id === id ? { ...f, conditionValue: value } : f))
-    markDirty()
-  }
-
-  return (
-    <div className="content-inner">
-      <div className="page-header">
-        <div>
-          <h1 className="page-title">Shifts & Flags</h1>
-          <p className="page-subtitle">Configure open shifts and compliance alerts</p>
-        </div>
-        <OverrideLock settingKey="shiftsFlags" scopeContext={scopeContext} />
-      </div>
-
-      <div className={locked ? 'form-locked' : ''}>
-        <SettingsSection title="Open shifts" description="Automatically post flagged shifts for other workers to pick up.">
+        <SettingsSection title="Time rounding" description="Round clock in/out times to reduce payroll discrepancies.">
           <SettingToggleRow
-            label="Auto-send to Open Shifts"
-            onDescription="When on, flagged shifts are automatically posted to Open Shifts."
-            offDescription="When off, flagged shifts must be manually posted."
-            enabled={openShifts}
-            onToggle={() => { setOpenShifts(!openShifts); markDirty() }}
+            label="Enable time rounding"
+            onDescription="When on, clock in/out times are rounded to the nearest interval."
+            offDescription="When off, exact clock in/out times are recorded."
+            enabled={timeRounding}
+            onToggle={() => { setTimeRounding(!timeRounding); markDirty() }}
           />
-          {openShifts && (
+          {timeRounding && (
             <SettingChildRow>
               <SettingValueRow
-                label="Visibility of Open Shifts"
-                description="Which shifts a team member can see in their Open Shifts list"
-                value={visibility === 'roles' ? 'Matching roles only' : 'Any shift at this location'}
-                onChange={v => { setVisibility(v === 'Matching roles only' ? 'roles' : 'any'); markDirty() }}
-                options={['Matching roles only', 'Any shift at this location']}
+                label="Round to nearest"
+                description="Clock in/out times will be rounded to this interval"
+                value={roundMins}
+                suffix="mins"
+                type="number"
+                onChange={v => { setRoundMins(v); markDirty() }}
               />
             </SettingChildRow>
           )}
@@ -1954,6 +1980,55 @@ function ShiftsAndFlagsPage({ scopeContext }) {
               </div>
             </div>
           ))}
+        </SettingsSection>
+      </div>
+    </div>
+  )
+}
+
+// ============================================================
+// SHIFT POOL PAGE
+// ============================================================
+
+function ShiftPoolPage({ scopeContext }) {
+  const { markDirty, isPageLocked, syncValues, getInitialValues } = scopeContext
+  const locked = isPageLocked('shiftsFlags')
+  const init = getInitialValues('shift_pool')
+  const [openShifts, setOpenShifts] = useState(init.openShifts)
+  const [visibility, setVisibility] = useState(init.visibility)
+
+  useEffect(() => { syncValues('shift_pool', { openShifts, visibility }) }, [openShifts, visibility])
+
+  return (
+    <div className="content-inner">
+      <div className="page-header">
+        <div>
+          <h1 className="page-title">Shift Pool</h1>
+          <p className="page-subtitle">Configure how open shifts are posted and who can see them</p>
+        </div>
+        <OverrideLock settingKey="shiftsFlags" scopeContext={scopeContext} />
+      </div>
+
+      <div className={locked ? 'form-locked' : ''}>
+        <SettingsSection title="Open shifts" description="Automatically post flagged shifts for other workers to pick up.">
+          <SettingToggleRow
+            label="Auto-send to Open Shifts"
+            onDescription="When on, flagged shifts are automatically posted to Open Shifts."
+            offDescription="When off, flagged shifts must be manually posted."
+            enabled={openShifts}
+            onToggle={() => { setOpenShifts(!openShifts); markDirty() }}
+          />
+          {openShifts && (
+            <SettingChildRow>
+              <SettingValueRow
+                label="Visibility of Open Shifts"
+                description="Which shifts a team member can see in their Open Shifts list"
+                value={visibility === 'roles' ? 'Matching roles only' : 'Any shift at this location'}
+                onChange={v => { setVisibility(v === 'Matching roles only' ? 'roles' : 'any'); markDirty() }}
+                options={['Matching roles only', 'Any shift at this location']}
+              />
+            </SettingChildRow>
+          )}
         </SettingsSection>
       </div>
     </div>
@@ -1997,90 +2072,6 @@ function PaySchedulePage({ scopeContext }) {
   )
 }
 
-// ============================================================
-// HOURS & WORKWEEK PAGE
-// ============================================================
-
-function SchedulingHoursPage({ scopeContext }) {
-  const { markDirty, isPageLocked, syncValues, getInitialValues } = scopeContext
-  const locked = isPageLocked('operatingHours')
-  const init = getInitialValues('scheduling_hours')
-  const [workweekStart, setWorkweekStart] = useState(init.workweekStart)
-  const [sameHours, setSameHours] = useState(init.sameHours)
-  const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
-
-  const [sharedStart, setSharedStart] = useState(init.sharedStart)
-  const [sharedEnd, setSharedEnd] = useState(init.sharedEnd)
-
-  const [hours, setHours] = useState(init.hours)
-
-  useEffect(() => { syncValues('scheduling_hours', { sameHours, sharedStart, sharedEnd, workweekStart, hours }) }, [sameHours, sharedStart, sharedEnd, workweekStart, hours])
-
-  const updateDay = (day, field, value) => {
-    setHours(prev => ({ ...prev, [day]: { ...prev[day], [field]: value } }))
-    markDirty()
-  }
-  const toggleDay = (day) => {
-    setHours(prev => ({ ...prev, [day]: { ...prev[day], closed: !prev[day].closed } }))
-    markDirty()
-  }
-
-  return (
-    <div className="content-inner">
-      <div className="page-header">
-        <div>
-          <h1 className="page-title">Hours & Workweek</h1>
-          <p className="page-subtitle">Business hours and workweek configuration</p>
-        </div>
-        <OverrideLock settingKey="operatingHours" scopeContext={scopeContext} />
-      </div>
-
-      <div className={locked ? 'form-locked' : ''}>
-        <SettingsSection title="Scheduling hours" description="Hours when shifts can be scheduled. End times past midnight (up to 2:00 AM) are treated as the next day.">
-          <SettingToggleRow
-            label="Same hours every day"
-            onDescription="All days share the same operating hours."
-            offDescription="Each day can have different hours."
-            enabled={sameHours}
-            onToggle={() => { setSameHours(!sameHours); markDirty() }}
-          />
-
-          {sameHours && (
-            <SettingChildRow>
-              <SettingValueRow label="Opens at" value={sharedStart} onChange={v => { setSharedStart(v); markDirty() }} type="time" />
-              <SettingValueRow label="Closes at" value={sharedEnd} onChange={v => { setSharedEnd(v); markDirty() }} type="time" />
-              {isNextDay(sharedStart, sharedEnd) && (
-                <div className="hours-next-day-note">Closes after midnight (next day)</div>
-              )}
-            </SettingChildRow>
-          )}
-
-          {!sameHours && (
-            <div className="hours-day-list">
-              {DAYS.map(d => (
-                <DayHoursRow
-                  key={d}
-                  day={d}
-                  start={hours[d].start}
-                  end={hours[d].end}
-                  closed={hours[d].closed}
-                  onChangeStart={v => updateDay(d, 'start', v)}
-                  onChangeEnd={v => updateDay(d, 'end', v)}
-                  onToggle={() => toggleDay(d)}
-                />
-              ))}
-            </div>
-          )}
-        </SettingsSection>
-
-        <SettingsSection title="Workweek" description="The workweek start day determines when weekly overtime resets.">
-          <SettingValueRow label="Starts on" value={workweekStart} onChange={v => { setWorkweekStart(v); markDirty() }} options={['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']} />
-        </SettingsSection>
-      </div>
-    </div>
-  )
-}
-
 function DayHoursRow({ day, start, end, closed, onChangeStart, onChangeEnd, onToggle }) {
   return (
     <div className={`hours-day-row ${closed ? 'closed' : ''}`}>
@@ -2102,137 +2093,286 @@ function DayHoursRow({ day, start, end, closed, onChangeStart, onChangeEnd, onTo
   )
 }
 
-// ============================================================
-// CLOCK SETTINGS PAGE (was "Advanced Time Clock" — minus shared device)
-// ============================================================
+// Reusable hours & workweek form — used inside ManageLocationsPage location detail
+function HoursWorkweekForm({ values, onChange }) {
+  const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+  const { sameHours, sharedStart, sharedEnd, workweekStart, hours } = values
 
-function ClockSettingsPage({ scopeContext }) {
-  const { markDirty, isPageLocked, syncValues, getInitialValues } = scopeContext
-  const locked = isPageLocked('timeRounding')
-  const init = getInitialValues('clock_settings')
-  const [autoClockOut, setAutoClockOut] = useState(init.autoClockOut)
-  const [clockOutTime, setClockOutTime] = useState(init.clockOutTime)
-  const [timeRounding, setTimeRounding] = useState(init.timeRounding)
-  const [roundMins, setRoundMins] = useState(init.roundMins)
+  const set = (patch) => onChange({ ...values, ...patch })
 
-  useEffect(() => { syncValues('clock_settings', { autoClockOut, clockOutTime, timeRounding, roundMins }) }, [autoClockOut, clockOutTime, timeRounding, roundMins])
+  const updateDay = (day, field, value) =>
+    set({ hours: { ...hours, [day]: { ...hours[day], [field]: value } } })
+
+  const toggleDay = (day) =>
+    set({ hours: { ...hours, [day]: { ...hours[day], closed: !hours[day].closed } } })
 
   return (
-    <div className="content-inner">
-      <div className="page-header">
-        <div>
-          <h1 className="page-title">Time Tracking</h1>
-          <p className="page-subtitle">Auto clock-out, time rounding, and related settings</p>
-        </div>
-        <OverrideLock settingKey="timeRounding" scopeContext={scopeContext} />
-      </div>
-
-      <div className={locked ? 'form-locked' : ''}>
-        <SettingsSection title="Auto clock-out" description="Automatically clock out workers who forget to clock out.">
-          <SettingToggleRow
-            label="Enable auto clock-out"
-            onDescription="When on, automatically clock out workers at a set time."
-            offDescription="When off, workers will not be automatically clocked out."
-            enabled={autoClockOut}
-            onToggle={() => { setAutoClockOut(!autoClockOut); markDirty() }}
-          />
-          {autoClockOut && (
-            <SettingChildRow>
-              <SettingValueRow
-                label="Clock-out time"
-                description="Workers will be clocked out at this time"
-                value={clockOutTime}
-                onChange={v => { setClockOutTime(v); markDirty() }}
-                type="time"
+    <>
+      <SettingsSection title="Scheduling hours" description="Hours when shifts can be scheduled. End times past midnight (up to 2:00 AM) are treated as the next day.">
+        <SettingToggleRow
+          label="Same hours every day"
+          onDescription="All days share the same operating hours."
+          offDescription="Each day can have different hours."
+          enabled={sameHours}
+          onToggle={() => set({ sameHours: !sameHours })}
+        />
+        {sameHours && (
+          <SettingChildRow>
+            <SettingValueRow label="Opens at" value={sharedStart} onChange={v => set({ sharedStart: v })} type="time" />
+            <SettingValueRow label="Closes at" value={sharedEnd} onChange={v => set({ sharedEnd: v })} type="time" />
+            {isNextDay(sharedStart, sharedEnd) && (
+              <div className="hours-next-day-note">Closes after midnight (next day)</div>
+            )}
+          </SettingChildRow>
+        )}
+        {!sameHours && (
+          <div className="hours-day-list">
+            {DAYS.map(d => (
+              <DayHoursRow
+                key={d}
+                day={d}
+                start={hours[d].start}
+                end={hours[d].end}
+                closed={hours[d].closed}
+                onChangeStart={v => updateDay(d, 'start', v)}
+                onChangeEnd={v => updateDay(d, 'end', v)}
+                onToggle={() => toggleDay(d)}
               />
-            </SettingChildRow>
-          )}
-        </SettingsSection>
+            ))}
+          </div>
+        )}
+      </SettingsSection>
 
-        <SettingsSection title="Time rounding" description="Round clock in/out times to reduce payroll discrepancies.">
-          <SettingToggleRow
-            label="Enable time rounding"
-            onDescription="When on, clock in/out times are rounded to the nearest interval."
-            offDescription="When off, exact clock in/out times are recorded."
-            enabled={timeRounding}
-            onToggle={() => { setTimeRounding(!timeRounding); markDirty() }}
-          />
-          {timeRounding && (
-            <SettingChildRow>
-              <SettingValueRow
-                label="Round to nearest"
-                description="Clock in/out times will be rounded to this interval"
-                value={roundMins}
-                suffix="mins"
-                type="number"
-                onChange={v => { setRoundMins(v); markDirty() }}
-              />
-            </SettingChildRow>
-          )}
-        </SettingsSection>
-      </div>
-    </div>
+      <SettingsSection title="Workweek" description="The workweek start day determines when weekly overtime resets.">
+        <SettingValueRow
+          label="Starts on"
+          value={workweekStart}
+          onChange={v => set({ workweekStart: v })}
+          options={['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']}
+        />
+      </SettingsSection>
+    </>
   )
 }
 
 // ============================================================
-// SHARED DEVICE PAGE (own page now)
+// MANAGE LOCATIONS PAGE
 // ============================================================
 
-function SharedDevicePage({ scopeContext }) {
-  const { markDirty, syncValues, getInitialValues } = scopeContext
-  const init = getInitialValues('shared_device')
-  const [biometrics, setBiometrics] = useState(init.biometrics)
-  const [pin, setPin] = useState(init.pin)
+function ManageLocationsPage() {
+  const [locationSettings, setLocationSettings] = useState(() =>
+    Object.fromEntries(LOCATIONS.map(loc => [loc.id, { ...DEFAULT_LOCATION_SETTINGS }]))
+  )
+  const [selectedLocationId, setSelectedLocationId] = useState(null)
   const [pinVisible, setPinVisible] = useState(false)
+  const [showDeactivateConfirm, setShowDeactivateConfirm] = useState(false)
 
-  useEffect(() => { syncValues('shared_device', { biometrics, pin }) }, [biometrics, pin])
+  const selectedLocation = LOCATIONS.find(l => l.id === selectedLocationId)
+  const locSettings = selectedLocationId ? locationSettings[selectedLocationId] : null
+
+  const updateLocSettings = (patch) => {
+    setLocationSettings(prev => ({
+      ...prev,
+      [selectedLocationId]: { ...prev[selectedLocationId], ...patch },
+    }))
+  }
+
+  const handleBack = () => {
+    setSelectedLocationId(null)
+    setPinVisible(false)
+    setShowDeactivateConfirm(false)
+  }
+
+  if (selectedLocation && locSettings) {
+    const isActive = locSettings.active
+
+    return (
+      <div className="content-inner">
+        <div className="page-header">
+          <button
+            className="settings-nav-back"
+            style={{ padding: '4px 8px', fontSize: '13px' }}
+            onClick={handleBack}
+          >
+            <ChevronLeft size={16} />
+            <span>All locations</span>
+          </button>
+        </div>
+
+        <div className="page-header" style={{ marginTop: '8px' }}>
+          <div>
+            <h1 className="page-title" style={{ opacity: isActive ? 1 : 0.45 }}>{selectedLocation.name}</h1>
+            <p className="page-subtitle">{selectedLocation.subtitle}</p>
+          </div>
+          <span
+            style={{
+              fontSize: '12px',
+              fontWeight: 500,
+              color: isActive ? 'var(--green, #16a34a)' : 'var(--text-tertiary)',
+              background: isActive ? 'var(--green-subtle, #dcfce7)' : 'var(--bg-secondary)',
+              borderRadius: '99px',
+              padding: '3px 12px',
+            }}
+          >
+            {isActive ? 'Active' : 'Inactive'}
+          </span>
+        </div>
+
+        {!isActive ? (
+          <div style={{
+            background: 'var(--bg-secondary)',
+            border: '1px solid var(--border)',
+            borderRadius: '12px',
+            padding: '24px',
+            textAlign: 'center',
+            marginTop: '8px',
+          }}>
+            <div style={{ fontSize: '15px', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '8px' }}>
+              This location is inactive
+            </div>
+            <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '20px', maxWidth: '360px', margin: '0 auto 20px' }}>
+              Workers cannot clock in or be scheduled at this location while it is inactive. Settings are preserved and will take effect once the location is reactivated.
+            </p>
+            <button
+              className="btn-primary"
+              style={{ margin: '0 auto' }}
+              onClick={() => updateLocSettings({ active: true })}
+            >
+              Activate location
+            </button>
+          </div>
+        ) : (
+          <>
+            <HoursWorkweekForm
+              values={locSettings}
+              onChange={(patch) => updateLocSettings(patch)}
+            />
+
+            <SettingsSection title="Geolocation" description="The address used as the center point for geofence clock-in enforcement.">
+              <SettingValueRow
+                label="Address"
+                description="Physical address of this location"
+                value={locSettings.geoAddress}
+                onChange={v => updateLocSettings({ geoAddress: v })}
+              />
+            </SettingsSection>
+
+            <SettingsSection title="Shared mode" description="PIN required to access manager functions on shared time clock devices at this location.">
+              <div className="pin-row">
+                <div className="pin-row-text">
+                  <div className="ss-row-label">Shared mode PIN</div>
+                  <div className="ss-row-desc">Required to access manager functions on shared devices</div>
+                </div>
+                <div className="pin-field-wrapper">
+                  <input
+                    className="pin-field"
+                    type={pinVisible ? 'text' : 'password'}
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    maxLength={8}
+                    value={locSettings.sharedPin}
+                    readOnly={!pinVisible}
+                    onChange={e => updateLocSettings({ sharedPin: e.target.value.replace(/[^0-9]/g, '') })}
+                    onClick={() => { if (!pinVisible) setPinVisible(true) }}
+                  />
+                  <button
+                    className="pin-eye"
+                    type="button"
+                    onClick={() => setPinVisible(v => !v)}
+                    tabIndex={-1}
+                  >
+                    {pinVisible ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
+              </div>
+            </SettingsSection>
+
+            <div style={{ marginTop: '32px', paddingTop: '24px', borderTop: '1px solid var(--border)' }}>
+              {!showDeactivateConfirm ? (
+                <button className="bre-delete-btn" onClick={() => setShowDeactivateConfirm(true)}>
+                  Deactivate location
+                </button>
+              ) : (
+                <div className="bre-delete-confirm">
+                  <p>
+                    <strong>Deactivate {selectedLocation.name}?</strong> Workers will no longer be able to clock in or be scheduled at this location. All existing settings will be preserved and the location can be reactivated at any time.
+                  </p>
+                  <div className="bre-delete-confirm-actions">
+                    <button className="btn-secondary" style={{ fontSize: '13px', padding: '8px 14px' }} onClick={() => setShowDeactivateConfirm(false)}>
+                      Cancel
+                    </button>
+                    <button
+                      className="btn-danger-fill"
+                      style={{ fontSize: '13px', padding: '8px 14px' }}
+                      onClick={() => { updateLocSettings({ active: false }); setShowDeactivateConfirm(false) }}
+                    >
+                      Deactivate
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </>
+        )}
+      </div>
+    )
+  }
 
   return (
     <div className="content-inner">
       <div className="page-header">
         <div>
-          <h1 className="page-title">Shared Device</h1>
-          <p className="page-subtitle">PIN and biometric settings for shared time clocks</p>
+          <h1 className="page-title">Manage Locations</h1>
+          <p className="page-subtitle">Configure settings and status for each location</p>
         </div>
+        <button className="btn-primary" onClick={() => alert('Add location — not yet implemented')}>
+          <Plus size={16} /> Add location
+        </button>
       </div>
 
-      <SettingsSection title="Security">
-        <div className="pin-row">
-          <div className="pin-row-text">
-            <div className="ss-row-label">Manager PIN</div>
-            <div className="ss-row-desc">Required to access manager functions on shared devices</div>
-          </div>
-          <div className="pin-field-wrapper">
-            <input
-              className="pin-field"
-              type={pinVisible ? 'text' : 'password'}
-              inputMode="numeric"
-              pattern="[0-9]*"
-              maxLength={8}
-              value={pin}
-              readOnly={!pinVisible}
-              onChange={e => { setPin(e.target.value.replace(/[^0-9]/g, '')); markDirty() }}
-              onClick={() => { if (!pinVisible) setPinVisible(true) }}
-            />
-            <button
-              className="pin-eye"
-              type="button"
-              onClick={() => setPinVisible(!pinVisible)}
-              tabIndex={-1}
-            >
-              {pinVisible ? <EyeOff size={16} /> : <Eye size={16} />}
-            </button>
-          </div>
+      <div className="section-card">
+        <div className="section-card-body">
+          {LOCATIONS.map((loc, idx) => {
+            const settings = locationSettings[loc.id]
+            const isActive = settings.active
+            return (
+              <div
+                key={loc.id}
+                className="ss-row"
+                style={{
+                  cursor: 'pointer',
+                  borderTop: idx > 0 ? '1px solid var(--border)' : 'none',
+                  padding: '14px 16px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '12px',
+                  opacity: isActive ? 1 : 0.45,
+                }}
+                onClick={() => { setSelectedLocationId(loc.id); setPinVisible(false); setShowDeactivateConfirm(false) }}
+              >
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div className="ss-row-label">{loc.name}</div>
+                  <div className="ss-row-desc">{loc.subtitle}</div>
+                </div>
+                <span
+                  style={{
+                    fontSize: '12px',
+                    fontWeight: 500,
+                    color: isActive ? 'var(--green, #16a34a)' : 'var(--text-tertiary)',
+                    background: isActive ? 'var(--green-subtle, #dcfce7)' : 'var(--bg-secondary)',
+                    borderRadius: '99px',
+                    padding: '2px 10px',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {isActive ? 'Active' : 'Inactive'}
+                </span>
+                <ChevronRight size={16} style={{ color: 'var(--text-tertiary)', flexShrink: 0 }} />
+              </div>
+            )
+          })}
         </div>
-        <SettingToggleRow
-          label="Face ID / Biometrics"
-          onDescription="When on, workers can clock in using Face ID or biometrics."
-          offDescription="When off, workers must use other methods to clock in."
-          enabled={biometrics}
-          onToggle={() => { setBiometrics(!biometrics); markDirty() }}
-        />
-      </SettingsSection>
+      </div>
     </div>
   )
 }
