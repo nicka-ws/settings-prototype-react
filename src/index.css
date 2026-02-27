@@ -722,25 +722,27 @@ body {
   color: #64748b;
   background: #f1f5f9;
   border: 1px solid #e2e8f0;
+  cursor: default;
 }
 
-.override-lock.locked:hover {
-  background: #e8edf5;
-  border-color: #c7d7fe;
-  color: #3b5bc0;
-}
-
-.override-lock-action {
-  margin-left: 2px;
+.override-lock-action-btn {
+  margin-left: 4px;
+  padding: 2px 8px;
+  background: none;
+  border: 1px solid #c7d7fe;
+  border-radius: 5px;
   font-size: 11px;
   font-weight: 600;
   color: var(--primary);
-  opacity: 0;
-  transition: opacity 0.15s;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.15s, color 0.15s;
 }
 
-.override-lock.locked:hover .override-lock-action {
-  opacity: 1;
+.override-lock-action-btn:hover {
+  background: var(--primary);
+  color: #fff;
+  border-color: var(--primary);
 }
 
 /* Unlocked state — custom override active */
@@ -756,21 +758,128 @@ body {
   align-items: center;
   gap: 4px;
   margin-left: 4px;
-  padding: 0;
+  padding: 2px 8px;
   background: none;
-  border: none;
+  border: 1px solid #c7d7fe;
+  border-radius: 5px;
   font-size: 11px;
   font-weight: 600;
   color: #64748b;
   cursor: pointer;
   font-family: inherit;
-  opacity: 0.7;
-  transition: opacity 0.15s, color 0.15s;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
 }
 
 .override-lock-revert:hover {
-  opacity: 1;
+  background: #fff0f0;
   color: #dc2626;
+  border-color: #fca5a5;
+}
+
+/* ============ OVERRIDE LOCK MODAL ============ */
+
+.override-lock-modal {
+  background: var(--surface);
+  border-radius: 14px;
+  max-width: 420px;
+  width: 90%;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.2);
+  padding: 24px;
+}
+
+.override-lock-modal-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 14px;
+}
+
+.override-lock-modal-icon.customize {
+  background: #eff6ff;
+  color: var(--primary);
+}
+
+.override-lock-modal-icon.revert {
+  background: #fff7ed;
+  color: #ea580c;
+}
+
+.override-lock-modal h3 {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0 0 10px;
+}
+
+.override-lock-modal p {
+  font-size: 13px;
+  color: #64748b;
+  line-height: 1.55;
+  margin: 0 0 8px;
+}
+
+.override-lock-modal p strong {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.override-lock-modal-note {
+  font-size: 12px !important;
+  color: #94a3b8 !important;
+}
+
+.override-lock-modal-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 20px;
+}
+
+.override-lock-modal-cancel {
+  padding: 8px 16px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.override-lock-modal-cancel:hover {
+  background: var(--surface-header);
+}
+
+.override-lock-modal-confirm {
+  padding: 8px 16px;
+  border-radius: 8px;
+  border: none;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.override-lock-modal-confirm.customize {
+  background: var(--primary);
+  color: #fff;
+}
+
+.override-lock-modal-confirm.customize:hover {
+  background: #1d4ed8;
+}
+
+.override-lock-modal-confirm.revert {
+  background: #ea580c;
+  color: #fff;
+}
+
+.override-lock-modal-confirm.revert:hover {
+  background: #c2410c;
 }
 
 /* ============ FORM LOCKED STATE ============ */

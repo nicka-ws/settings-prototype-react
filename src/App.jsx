@@ -872,42 +872,114 @@ function SectionCard({ icon: Icon, title, description, onEdit, badge, children, 
 
 function OverrideLock({ settingKey, scopeContext }) {
   const { isCompanyScope, isGroupScope, isLocationScope, selectedGroup, selectedLocation, isPageLocked, setPageLocked } = scopeContext
+  const [pendingAction, setPendingAction] = useState(null) // 'customize' | 'revert'
 
-  // Company scope: always editable, no lock UI
   if (isCompanyScope) return null
 
   const locked = isPageLocked(settingKey)
 
-  // Determine parent source label
   const parentLabel = isLocationScope
     ? (selectedGroup ? `${selectedGroup.name} policy` : 'Company default')
     : 'Company default'
 
-  // Determine current scope label
   const scopeLabel = isGroupScope
     ? selectedGroup?.name
     : selectedLocation?.name
 
-  const handleUnlock = () => setPageLocked(settingKey, false)
-  const handleRelock = () => setPageLocked(settingKey, true)
-
-  if (locked) {
-    return (
-      <div className="override-lock locked" onClick={handleUnlock} title="Click to customize for this scope">
-        <Lock size={13} />
-        <span>From {parentLabel}</span>
-        <span className="override-lock-action">Customize</span>
-      </div>
-    )
+  const handleConfirm = () => {
+    if (pendingAction === 'customize') setPageLocked(settingKey, false)
+    if (pendingAction === 'revert') setPageLocked(settingKey, true)
+    setPendingAction(null)
   }
 
   return (
-    <div className="override-lock unlocked">
-      <LockOpen size={13} />
-      <span>Custom for {scopeLabel}</span>
-      <button className="override-lock-revert" onClick={handleRelock}>
-        <RotateCcw size={11} /> Revert
-      </button>
+    <>
+      {locked ? (
+        <div className="override-lock locked">
+          <Lock size={13} />
+          <span>Locked to {parentLabel}</span>
+          <button className="override-lock-action-btn" onClick={() => setPendingAction('customize')}>
+            Customize
+          </button>
+        </div>
+      ) : (
+        <div className="override-lock unlocked">
+          <LockOpen size={13} />
+          <span>Custom for {scopeLabel}</span>
+          <button className="override-lock-revert" onClick={() => setPendingAction('revert')}>
+            <RotateCcw size={11} /> Revert
+          </button>
+        </div>
+      )}
+
+      {pendingAction === 'customize' && (
+        <OverrideLockModal
+          action="customize"
+          parentLabel={parentLabel}
+          scopeLabel={scopeLabel}
+          onConfirm={handleConfirm}
+          onCancel={() => setPendingAction(null)}
+        />
+      )}
+
+      {pendingAction === 'revert' && (
+        <OverrideLockModal
+          action="revert"
+          parentLabel={parentLabel}
+          scopeLabel={scopeLabel}
+          onConfirm={handleConfirm}
+          onCancel={() => setPendingAction(null)}
+        />
+      )}
+    </>
+  )
+}
+
+function OverrideLockModal({ action, parentLabel, scopeLabel, onConfirm, onCancel }) {
+  const isCustomize = action === 'customize'
+
+  return (
+    <div className="dialog-overlay" onClick={onCancel}>
+      <div className="override-lock-modal" onClick={e => e.stopPropagation()}>
+        <div className={`override-lock-modal-icon ${isCustomize ? 'customize' : 'revert'}`}>
+          {isCustomize ? <LockOpen size={20} /> : <Lock size={20} />}
+        </div>
+
+        {isCustomize ? (
+          <>
+            <h3>Customize for {scopeLabel}?</h3>
+            <p>
+              This will create a <strong>custom override</strong> for <strong>{scopeLabel}</strong>, breaking its
+              inheritance from <strong>{parentLabel}</strong>. Any changes you save here will only apply to this scope
+              and won't affect other regions or locations.
+            </p>
+            <p className="override-lock-modal-note">
+              You can always revert back to {parentLabel} later.
+            </p>
+          </>
+        ) : (
+          <>
+            <h3>Revert to {parentLabel}?</h3>
+            <p>
+              This will remove the custom override for <strong>{scopeLabel}</strong> and restore inheritance
+              from <strong>{parentLabel}</strong>. Any unsaved changes on this page will be discarded.
+            </p>
+            <p className="override-lock-modal-note">
+              Other regions or locations that inherit from {parentLabel} are not affected.
+            </p>
+          </>
+        )}
+
+        <div className="override-lock-modal-actions">
+          <button className="override-lock-modal-cancel" onClick={onCancel}>Cancel</button>
+          <button
+            className={`override-lock-modal-confirm ${isCustomize ? 'customize' : 'revert'}`}
+            onClick={onConfirm}
+          >
+            {isCustomize ? 'Customize' : 'Revert to default'}
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
