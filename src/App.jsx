@@ -2,11 +2,11 @@ import { useState, useRef, useEffect } from 'react'
 import {
   MessageCircle, CheckSquare, Users, UserPlus, Clock, Umbrella, StickyNote,
   DollarSign, Settings, Droplets, Building2, MapPin, AlertTriangle, Info,
-  CircleCheck, CircleX, Coffee, Timer, Shield, Map, Wand2, Flag, Plus,
+  CircleCheck, CircleX, Coffee, Timer, Shield, ShieldAlert, ShieldCheck, Map, Wand2, Flag, Plus,
   ChevronRight, Pin, Scan, Lightbulb, Construction, CalendarDays, Tablet,
   TriangleAlert, X, Check, ArrowRight, Sparkles, CircleAlert, ChevronDown,
   RotateCcw, Trash2, ChevronLeft, ToggleLeft, ToggleRight, Search,
-  FileText, Eye, EyeOff, Lock, LockOpen
+  FileText, Eye, EyeOff, Lock, LockOpen, Menu
 } from 'lucide-react'
 
 // ============================================================
@@ -21,7 +21,6 @@ const POLICY_GROUPS = [
     subtitle: '3 locations · State compliance',
     icon: FileText,
     locationIds: ['loc1', 'loc2', 'loc3'],
-    overrides: { breaks: true, overtime: true },
   },
   {
     id: 'texas',
@@ -29,7 +28,6 @@ const POLICY_GROUPS = [
     subtitle: '2 locations · State compliance',
     icon: FileText,
     locationIds: ['loc4', 'loc5'],
-    overrides: { overtime: true },
   },
   {
     id: 'newyork',
@@ -37,29 +35,21 @@ const POLICY_GROUPS = [
     subtitle: '2 locations · State compliance',
     icon: FileText,
     locationIds: ['loc6', 'loc7'],
-    overrides: { breaks: true, overtime: true, shiftsFlags: true },
   },
 ]
 
 // Individual locations, each belonging to a policy group
 const LOCATIONS = [
   // California
-  { id: 'loc1', name: 'Downtown SF Store', subtitle: 'San Francisco, CA', icon: MapPin, groupId: 'california',
-    overrides: { earlyClockIn: true, operatingHours: true } },
-  { id: 'loc2', name: 'Oakland Branch', subtitle: 'Oakland, CA', icon: MapPin, groupId: 'california',
-    overrides: {} },
-  { id: 'loc3', name: 'San Jose Outlet', subtitle: 'San Jose, CA', icon: MapPin, groupId: 'california',
-    overrides: { operatingHours: true } },
+  { id: 'loc1', name: 'Downtown SF Store', subtitle: 'San Francisco, CA', icon: MapPin, groupId: 'california' },
+  { id: 'loc2', name: 'Oakland Branch', subtitle: 'Oakland, CA', icon: MapPin, groupId: 'california' },
+  { id: 'loc3', name: 'San Jose Outlet', subtitle: 'San Jose, CA', icon: MapPin, groupId: 'california' },
   // Texas
-  { id: 'loc4', name: 'Austin Downtown', subtitle: 'Austin, TX', icon: MapPin, groupId: 'texas',
-    overrides: { operatingHours: true } },
-  { id: 'loc5', name: 'Houston Galleria', subtitle: 'Houston, TX', icon: MapPin, groupId: 'texas',
-    overrides: {} },
+  { id: 'loc4', name: 'Austin Downtown', subtitle: 'Austin, TX', icon: MapPin, groupId: 'texas' },
+  { id: 'loc5', name: 'Houston Galleria', subtitle: 'Houston, TX', icon: MapPin, groupId: 'texas' },
   // New York
-  { id: 'loc6', name: 'Manhattan Midtown', subtitle: 'New York, NY', icon: MapPin, groupId: 'newyork',
-    overrides: { earlyClockIn: true } },
-  { id: 'loc7', name: 'Brooklyn Heights', subtitle: 'Brooklyn, NY', icon: MapPin, groupId: 'newyork',
-    overrides: {} },
+  { id: 'loc6', name: 'Manhattan Midtown', subtitle: 'New York, NY', icon: MapPin, groupId: 'newyork' },
+  { id: 'loc7', name: 'Brooklyn Heights', subtitle: 'Brooklyn, NY', icon: MapPin, groupId: 'newyork' },
 ]
 
 // Helper: find group for a location
@@ -270,15 +260,17 @@ const DEFAULT_PAGE_VALUES = {
   overtime:         { configured: false, weeklyHrs: '40', dailyHrs: '0', doubleHrs: '0' },
   pay_schedule:     { frequency: 'Bi-weekly', periodStart: 'Feb 1, 2026', startTime: '12:00 AM' },
   shift_pool:       { openShifts: false, visibility: 'roles' },
-  shift_enforcement:{ earlyClockIn: false, earlyMins: '', geofence: true,
-                      autoClockOut: true, clockOutTime: '02:00 AM', timeRounding: true, roundMins: '15',
-                      flags: DEFAULT_FLAGS_CONST },
+  clock_in_out:     { earlyClockIn: false, earlyMins: '', geofence: true, clockInMethod: 'both',
+                      autoClockOut: true, clockOutTime: '02:00 AM', timeRounding: true, roundMins: '15' },
+  shift_alerts:     { flags: DEFAULT_FLAGS_CONST },
+  schedule_visibility: { employeeVisibility: 'everyone', managersAlwaysVisible: true },
 }
 
 function SettingsScreen({ onBack }) {
   const [category, setCategory] = useState('time_and_scheduling')
   const [item, setItem] = useState('shift_enforcement')
   const [showComplianceWizard, setShowComplianceWizard] = useState(false)
+  const [navOpen, setNavOpen] = useState(false)
 
   // Scope: { type: 'company' } | { type: 'group', id } | { type: 'location', id }
   const [selectedScope, setSelectedScope] = useState({ type: 'company' })
@@ -342,7 +334,10 @@ function SettingsScreen({ onBack }) {
   }
 
   // ── Lock state ──────────────────────────────────────────────────────
-  const [lockedPages, setLockedPages] = useState({})
+  const [lockedPages, setLockedPages] = useState({
+    'california:breaks': false,
+    'california:overtime': false,
+  })
 
   const _getLockKey = (settingKey) => `${getScopeId()}:${settingKey}`
 
@@ -465,9 +460,7 @@ function SettingsScreen({ onBack }) {
   const locationOverrideCounts = Object.fromEntries(
     LOCATIONS.map(loc => {
       const prefix = loc.id + ':'
-      const unlocked = new Set(
-        Object.entries(loc.overrides || {}).filter(([, v]) => v).map(([k]) => k)
-      )
+      const unlocked = new Set()
       Object.entries(lockedPages)
         .filter(([k]) => k.startsWith(prefix))
         .forEach(([k, v]) => {
@@ -479,39 +472,93 @@ function SettingsScreen({ onBack }) {
     })
   )
 
+  const groupOverrideCounts = Object.fromEntries(
+    POLICY_GROUPS.map(group => {
+      const prefix = group.id + ':'
+      const unlocked = new Set()
+      Object.entries(lockedPages)
+        .filter(([k]) => k.startsWith(prefix))
+        .forEach(([k, v]) => {
+          const settingKey = k.slice(prefix.length)
+          if (v === false) unlocked.add(settingKey)
+          else unlocked.delete(settingKey)
+        })
+      return [group.id, unlocked.size]
+    })
+  )
+
+  // Compute compliance issues for every California group/location by walking
+  // the same inheritance chain as getInitialValues.
+  const getEffectiveForScope = (scopeId, pageId) => {
+    const loc = LOCATIONS.find(l => l.id === scopeId)
+    if (loc) {
+      const grp = getGroupForLocation(scopeId)
+      return savedValues[scopeId]?.[pageId]
+        ?? savedValues[grp?.id]?.[pageId]
+        ?? savedValues['company']?.[pageId]
+        ?? DEFAULT_PAGE_VALUES[pageId]
+    }
+    return savedValues[scopeId]?.[pageId]
+      ?? savedValues['company']?.[pageId]
+      ?? DEFAULT_PAGE_VALUES[pageId]
+  }
+
+  const isScopeNonCompliant = (scopeId) => {
+    const loc = LOCATIONS.find(l => l.id === scopeId)
+    const group = loc ? getGroupForLocation(scopeId) : POLICY_GROUPS.find(g => g.id === scopeId)
+    if (group?.id !== 'california') return false
+    const breaks = getEffectiveForScope(scopeId, 'breaks')
+    const overtime = getEffectiveForScope(scopeId, 'overtime')
+    const hasBreaks = breaks?.hasBreakRules || (breaks?.rules?.length > 0)
+    const hasOT = overtime?.configured
+    return !(hasBreaks && hasOT)
+  }
+
+  const scopeComplianceIssues = Object.fromEntries([
+    ...POLICY_GROUPS.map(g => [g.id, isScopeNonCompliant(g.id)]),
+    ...LOCATIONS.map(l => [l.id, isScopeNonCompliant(l.id)]),
+  ])
+
+  const currentNavItem = NAV.find(s => s.category === category)?.items.find(i => i.id === item)
+  const pageTitle = currentNavItem?.label ?? item.replace(/_/g, ' ')
+  const pageSubtitle = currentNavItem?.subtitle
+
+  const handleNavMobile = (cat, itm) => {
+    handleNav(cat, itm)
+    setNavOpen(false)
+  }
+
   return (
     <>
+      {navOpen && <div className="nav-overlay" onClick={() => setNavOpen(false)} />}
       <SettingsNav
         category={category}
         item={item}
-        isCompliant={isCompliant}
         hasBreakRules={hasBreakRules}
         hasOvertimeConfig={hasOvertimeConfig}
-        onNav={handleNav}
+        onNav={handleNavMobile}
         onBack={onBack}
-        selectedScope={selectedScope}
-        onSelectScope={setSelectedScope}
-        locationOverrideCounts={locationOverrideCounts}
         isCompanyScope={isCompanyScope}
         isPageLocked={isPageLocked}
+        isOpen={navOpen}
       />
       <div className="settings-content">
-        {!isCompliant && (
-          <div className="compliance-banner" onClick={() => setShowComplianceWizard(true)}>
-            <div className="compliance-banner-left">
-              <CircleAlert size={16} />
-              <div className="compliance-banner-text">
-                <strong>Compliance issues detected</strong>
-                <span>Your settings may not comply with state labor law. Review {
-                  !hasBreakRules && !hasOvertimeConfig ? 'break rules and overtime thresholds'
-                  : !hasBreakRules ? 'break rules' : 'overtime thresholds'
-                } to fix.</span>
-              </div>
-            </div>
-            <span className="compliance-banner-action">Fix now <ArrowRight size={14} /></span>
+        <div className="content-topbar">
+          <button className="topbar-menu-btn" onClick={() => setNavOpen(true)}>
+            <Menu size={20} />
+          </button>
+          <div className="content-topbar-left">
+            <span className="content-topbar-title">{pageTitle}</span>
+            {pageSubtitle && <span className="content-topbar-subtitle">{pageSubtitle}</span>}
           </div>
-        )}
-
+          <ScopePicker
+            selectedScope={selectedScope}
+            onSelect={setSelectedScope}
+            locationOverrideCounts={locationOverrideCounts}
+            groupOverrideCounts={groupOverrideCounts}
+            complianceIssues={scopeComplianceIssues}
+          />
+        </div>
         <div className="content-scroll">
           <ContentRouter
             key={`${getScopeId()}-${discardKey}`}
@@ -613,7 +660,7 @@ function SaveToast({ onClose }) {
 // SCOPE PICKER (hierarchical: Company → Policy Groups → Locations)
 // ============================================================
 
-function ScopePicker({ selectedScope, onSelect, locationOverrideCounts }) {
+function ScopePicker({ selectedScope, onSelect, locationOverrideCounts, groupOverrideCounts, complianceIssues }) {
   const [open, setOpen] = useState(false)
   const ref = useRef(null)
 
@@ -686,13 +733,17 @@ function ScopePicker({ selectedScope, onSelect, locationOverrideCounts }) {
                     <span className="scope-picker-option-name">{group.name}</span>
                     <span className="scope-picker-option-sub">{group.subtitle}</span>
                   </div>
+                  {complianceIssues?.[group.id] && <ShieldAlert size={13} className="scope-picker-compliance-icon" />}
+                  {(groupOverrideCounts?.[group.id] ?? 0) > 0 && (
+                    <span className="scope-picker-override-badge">{groupOverrideCounts[group.id]}</span>
+                  )}
                   {isGroupActive && <Check size={16} color="var(--primary)" />}
                 </div>
 
                 {/* Nested child locations */}
                 <div className="scope-picker-children">
                   {groupLocs.map(loc => {
-                    const overrideCount = locationOverrideCounts?.[loc.id] ?? Object.keys(loc.overrides || {}).length
+                    const overrideCount = locationOverrideCounts?.[loc.id] ?? 0
                     return (
                       <div
                         key={loc.id}
@@ -704,6 +755,7 @@ function ScopePicker({ selectedScope, onSelect, locationOverrideCounts }) {
                           <span className="scope-picker-option-name">{loc.name}</span>
                           <span className="scope-picker-option-sub">{loc.subtitle}</span>
                         </div>
+                        {complianceIssues?.[loc.id] && <ShieldAlert size={13} className="scope-picker-compliance-icon" />}
                         {overrideCount > 0 && (
                           <span className="scope-picker-override-badge">{overrideCount}</span>
                         )}
@@ -735,25 +787,27 @@ const NAV = [
   },
   {
     title: 'Payroll', category: 'payroll', items: [
-      { id: 'pay_schedule', label: 'Pay schedule', settingKey: 'paySchedule' },
+      { id: 'pay_schedule', label: 'Pay schedule', settingKey: 'paySchedule', subtitle: 'Configure pay periods and frequency' },
       { id: 'payroll_other', label: 'Payroll integration' },
     ]
   },
   {
     title: 'Time and Scheduling', category: 'time_and_scheduling', items: [
-      { id: 'shift_pool', label: 'Shift pool', settingKey: 'shiftsFlags' },
-      { id: 'shift_enforcement', label: 'Shift enforcement', settingKey: 'earlyClockIn' },
+      { id: 'shift_pool', label: 'Open shifts', settingKey: 'shiftsFlags', subtitle: 'Configure how open shifts are posted and who can see them' },
+      { id: 'clock_in_out', label: 'Shift enforcement', settingKey: 'clockIn', subtitle: 'Control when, where and how employees clock in and out' },
+      { id: 'shift_alerts', label: 'Alerts', settingKey: 'shiftAlerts', subtitle: 'Flag shifts that need manager attention' },
+      { id: 'schedule_visibility', label: 'Schedule visibility', settingKey: 'scheduleVisibility', subtitle: 'Control what employees can see in the schedule' },
     ]
   },
   {
     title: 'Compliance', category: 'compliance', items: [
-      { id: 'overtime', label: 'Overtime', complianceKey: 'overtime', settingKey: 'overtime' },
-      { id: 'breaks', label: 'Breaks', complianceKey: 'breaks', settingKey: 'breaks' },
+      { id: 'overtime', label: 'Overtime', complianceKey: 'overtime', settingKey: 'overtime', subtitle: 'Set overtime thresholds for calculating pay' },
+      { id: 'breaks', label: 'Breaks', complianceKey: 'breaks', settingKey: 'breaks', subtitle: 'Configure required meal and rest breaks' },
     ]
   },
   {
     title: 'Locations', category: 'locations', items: [
-      { id: 'manage_locations', label: 'Manage locations' },
+      { id: 'manage_locations', label: 'Manage locations', subtitle: 'View and configure your locations' },
     ]
   },
   {
@@ -763,9 +817,9 @@ const NAV = [
   },
 ]
 
-function SettingsNav({ category, item, isCompliant, hasBreakRules, hasOvertimeConfig, onNav, onBack, selectedScope, onSelectScope, locationOverrideCounts, isCompanyScope, isPageLocked }) {
+function SettingsNav({ category, item, hasBreakRules, hasOvertimeConfig, onNav, onBack, isCompanyScope, isPageLocked, isOpen }) {
   return (
-    <nav className="settings-nav">
+    <nav className={`settings-nav ${isOpen ? 'open' : ''}`}>
       {/* Back header */}
       <div className="settings-nav-header">
         <button className="settings-nav-back" onClick={onBack}>
@@ -776,11 +830,6 @@ function SettingsNav({ category, item, isCompliant, hasBreakRules, hasOvertimeCo
           <Settings size={16} />
           <span>Settings</span>
         </div>
-      </div>
-
-      {/* Scope picker in sidebar */}
-      <div className="settings-nav-scope">
-        <ScopePicker selectedScope={selectedScope} onSelect={onSelectScope} locationOverrideCounts={locationOverrideCounts} />
       </div>
 
       {/* Nav sections */}
@@ -802,9 +851,9 @@ function SettingsNav({ category, item, isCompliant, hasBreakRules, hasOvertimeCo
                     className={`settings-nav-item ${category === cat && item === navItem.id ? 'active' : ''}`}
                     onClick={() => onNav(cat, navItem.id)}
                   >
-                    {showDot && <span className="settings-nav-dot error" />}
+                    {showDot && <ShieldAlert size={13} className="settings-nav-compliance-icon" />}
                     <span>{navItem.label}</span>
-                    {showOverrideBadge && <span className="scope-picker-override-badge">override</span>}
+                    {showOverrideBadge && <span className="settings-nav-override-dot" />}
                   </div>
                 )
               })}
@@ -966,7 +1015,9 @@ function ContentRouter({ category, item, scopeContext, hasBreakRules, hasOvertim
     { cat: 'compliance',          id: 'breaks' },
     { cat: 'compliance',          id: 'overtime' },
     { cat: 'time_and_scheduling', id: 'shift_pool' },
-    { cat: 'time_and_scheduling', id: 'shift_enforcement' },
+    { cat: 'time_and_scheduling', id: 'clock_in_out' },
+    { cat: 'time_and_scheduling', id: 'shift_alerts' },
+    { cat: 'time_and_scheduling', id: 'schedule_visibility' },
     { cat: 'payroll',             id: 'pay_schedule' },
     { cat: 'locations',           id: 'manage_locations' },
     { cat: 'reference',           id: 'design_reference' },
@@ -985,8 +1036,14 @@ function ContentRouter({ category, item, scopeContext, hasBreakRules, hasOvertim
       <div style={{ display: is('time_and_scheduling','shift_pool') ? 'contents' : 'none' }}>
         <ShiftPoolPage scopeContext={sc} />
       </div>
-      <div style={{ display: is('time_and_scheduling','shift_enforcement') ? 'contents' : 'none' }}>
-        <ShiftEnforcementPage scopeContext={sc} />
+      <div style={{ display: is('time_and_scheduling','clock_in_out') ? 'contents' : 'none' }}>
+        <ClockInOutPage scopeContext={sc} />
+      </div>
+      <div style={{ display: is('time_and_scheduling','shift_alerts') ? 'contents' : 'none' }}>
+        <ShiftAlertsPage scopeContext={sc} />
+      </div>
+      <div style={{ display: is('time_and_scheduling','schedule_visibility') ? 'contents' : 'none' }}>
+        <ScheduleVisibilityPage scopeContext={sc} />
       </div>
       <div style={{ display: is('payroll','pay_schedule') ? 'contents' : 'none' }}>
         <PaySchedulePage scopeContext={sc} />
@@ -1069,7 +1126,7 @@ function OverrideLock({ settingKey, scopeContext }) {
           <Lock size={13} />
           <span>Locked to {parentLabel}</span>
           <button className="override-lock-action-btn" onClick={() => setPendingAction('customize')}>
-            Customize
+            Edit
           </button>
         </div>
       ) : (
@@ -1077,7 +1134,7 @@ function OverrideLock({ settingKey, scopeContext }) {
           <LockOpen size={13} />
           <span>Custom for {scopeLabel}</span>
           <button className="override-lock-revert" onClick={() => setPendingAction('revert')}>
-            <RotateCcw size={11} /> Revert
+            Revert
           </button>
         </div>
       )}
@@ -1107,6 +1164,10 @@ function OverrideLock({ settingKey, scopeContext }) {
 
 function OverrideLockModal({ action, parentLabel, scopeLabel, onConfirm, onCancel }) {
   const isCustomize = action === 'customize'
+  const [startMode, setStartMode] = useState('inherit')
+  const [copyGroupId, setCopyGroupId] = useState('')
+
+  const canConfirm = !isCustomize || startMode !== 'copy' || copyGroupId !== ''
 
   return (
     <div className="dialog-overlay" onClick={onCancel}>
@@ -1117,25 +1178,59 @@ function OverrideLockModal({ action, parentLabel, scopeLabel, onConfirm, onCance
 
         {isCustomize ? (
           <>
-            <h3>Customize for {scopeLabel}?</h3>
+            <h3>Create custom settings for {scopeLabel}?</h3>
             <p>
-              This will create a <strong>custom override</strong> for <strong>{scopeLabel}</strong>, breaking its
-              inheritance from <strong>{parentLabel}</strong>. Any changes you save here will only apply to this scope
-              and won't affect other regions or locations.
+              <strong>{scopeLabel}</strong> currently inherits this page's settings from <strong>{parentLabel}</strong>.
+              Creating a custom override means <strong>only this page</strong> will diverge — all other pages will
+              continue to inherit from {parentLabel} as normal.
             </p>
-            <p className="override-lock-modal-note">
-              You can always revert back to {parentLabel} later.
-            </p>
+
+            <div className="override-modal-options">
+              <div
+                className={`override-modal-option ${startMode === 'inherit' ? 'selected' : ''}`}
+                onClick={() => setStartMode('inherit')}
+              >
+                <div className="override-modal-option-indicator" />
+                <div className="override-modal-option-text">
+                  <strong>Start from {parentLabel}</strong>
+                  <span>Begin with the current {parentLabel} settings for this page as a baseline, then make your changes.</span>
+                </div>
+              </div>
+              <div
+                className={`override-modal-option ${startMode === 'copy' ? 'selected' : ''}`}
+                onClick={() => setStartMode('copy')}
+              >
+                <div className="override-modal-option-indicator" />
+                <div className="override-modal-option-text">
+                  <strong>Copy from another group</strong>
+                  <span>Import a one-time copy of this page's settings from a different policy group. Future changes to that group won't affect {scopeLabel}.</span>
+                </div>
+              </div>
+              {startMode === 'copy' && (
+                <select
+                  className="override-modal-group-select"
+                  value={copyGroupId}
+                  onChange={e => setCopyGroupId(e.target.value)}
+                >
+                  <option value="">Select a group…</option>
+                  {POLICY_GROUPS.map(g => (
+                    <option key={g.id} value={g.id}>{g.name}</option>
+                  ))}
+                </select>
+              )}
+            </div>
+
+            <p className="override-lock-modal-note">Only this page is affected. You can revert back to {parentLabel} at any time.</p>
           </>
         ) : (
           <>
             <h3>Revert to {parentLabel}?</h3>
             <p>
-              This will remove the custom override for <strong>{scopeLabel}</strong> and restore inheritance
-              from <strong>{parentLabel}</strong>. Any unsaved changes on this page will be discarded.
+              This will remove the custom settings for <strong>{scopeLabel}</strong> and restore
+              inheritance from <strong>{parentLabel}</strong>. Any unsaved changes on this page will be discarded.
             </p>
             <p className="override-lock-modal-note">
-              Other regions or locations that inherit from {parentLabel} are not affected.
+              Other groups and locations that inherit from {parentLabel} are not affected.
             </p>
           </>
         )}
@@ -1145,8 +1240,9 @@ function OverrideLockModal({ action, parentLabel, scopeLabel, onConfirm, onCance
           <button
             className={`override-lock-modal-confirm ${isCustomize ? 'customize' : 'revert'}`}
             onClick={onConfirm}
+            disabled={!canConfirm}
           >
-            {isCustomize ? 'Customize' : 'Revert to default'}
+            {isCustomize ? 'Create custom settings' : 'Revert to default'}
           </button>
         </div>
       </div>
@@ -1244,7 +1340,7 @@ function AlignSettingsModal({ locationName, locationId, settingLabel, onApply, o
 // ============================================================
 // States: 'empty' (FTUX), 'compliant', 'warning' (fell out)
 
-function ComplianceModule({ status, onAutoApply, emptyIcon: EmptyIcon, emptyTitle, emptyDescription, compliantLabel, warningLabel, warningDescription, autoApplyLabel, legalCode, legalSummary }) {
+function ComplianceModule({ status, onAutoApply, emptyTitle, emptyDescription, compliantLabel, warningLabel, warningDescription, autoApplyLabel, legalCode, legalSummary }) {
   const [expanded, setExpanded] = useState(false)
 
   const legalFooter = (
@@ -1267,7 +1363,7 @@ function ComplianceModule({ status, onAutoApply, emptyIcon: EmptyIcon, emptyTitl
   if (status === 'empty') {
     return (
       <div className="compliance-module empty">
-        <div className="compliance-module-icon-lg"><EmptyIcon size={28} /></div>
+        <div className="compliance-module-icon-lg"><ShieldAlert size={28} /></div>
         <div className="compliance-module-body">
           <h3>{emptyTitle}</h3>
           <p>{emptyDescription}</p>
@@ -1286,7 +1382,7 @@ function ComplianceModule({ status, onAutoApply, emptyIcon: EmptyIcon, emptyTitl
     return (
       <div className="compliance-module error">
         <div className="compliance-module-row">
-          <CircleAlert size={18} className="compliance-module-icon-error" />
+          <ShieldAlert size={18} className="compliance-module-icon-error" />
           <div className="compliance-module-body">
             <h4>Non-compliance detected</h4>
             <p>{warningDescription}</p>
@@ -1304,7 +1400,7 @@ function ComplianceModule({ status, onAutoApply, emptyIcon: EmptyIcon, emptyTitl
   return (
     <div className="compliance-module compliant">
       <div className="compliance-compliant-top">
-        <CircleCheck size={20} />
+        <ShieldCheck size={20} />
         <div className="compliance-compliant-text">
           <strong>Fully compliant</strong>
           <span>{compliantLabel}</span>
@@ -1395,10 +1491,6 @@ function BreaksPage({ hasBreakRules, isCaliforniaScope, onApply, scopeContext })
   return (
     <div className="content-inner">
       <div className="page-header">
-        <div>
-          <h1 className="page-title">Breaks</h1>
-          <p className="page-subtitle">Configure required meal and rest breaks</p>
-        </div>
         <OverrideLock settingKey="breaks" scopeContext={scopeContext} />
       </div>
 
@@ -1407,7 +1499,6 @@ function BreaksPage({ hasBreakRules, isCaliforniaScope, onApply, scopeContext })
           <ComplianceModule
             status={complianceStatus}
             onAutoApply={handleAutoApply}
-            emptyIcon={Coffee}
             emptyTitle="No break rules configured"
             emptyDescription="Break rules help ensure your location complies with labor laws. We detected this location is in California and can auto-apply compliant rules."
             compliantLabel="Compliant with California break requirements"
@@ -1443,15 +1534,16 @@ function BreaksPage({ hasBreakRules, isCaliforniaScope, onApply, scopeContext })
 function BreakRuleRow({ rule, onClick }) {
   const { name, roles, type, shiftDuration, breakDuration, earliest, latest, required, waivable, allowEarlyEnd, sendReminder, reminderMins } = rule
 
-  // Only surface active/notable modifiers — silence is the default
-  const modifiers = []
-  if (waivable) modifiers.push('Waivable')
-  if (allowEarlyEnd) modifiers.push('Can end early')
-  if (sendReminder) modifiers.push(`Reminder ${reminderMins} min before`)
-
   const roleLabel = !roles || roles.length === 0
     ? 'All roles'
     : roles.length === 1 ? roles[0] : `${roles.length} roles`
+
+  const chips = [
+    { label: required ? 'Required' : 'Not required', active: required },
+    { label: waivable ? 'Waivable' : 'Not waivable', active: waivable },
+    { label: allowEarlyEnd ? 'Can end early' : 'No early end', active: allowEarlyEnd },
+    { label: sendReminder ? `Reminder ${reminderMins}m` : 'No reminder', active: sendReminder },
+  ]
 
   return (
     <div className="break-card" onClick={onClick}>
@@ -1459,23 +1551,19 @@ function BreakRuleRow({ rule, onClick }) {
         <div className="break-card-left">
           <div className="break-card-title-row">
             <span className="break-card-name">{name}</span>
-            <span className={`break-badge ${type === 'Paid' ? 'paid' : 'unpaid'}`}>{type}</span>
-            <span className={`break-badge ${required ? 'required' : 'optional'}`}>{required ? 'Required' : 'Optional'}</span>
+            <span className="break-card-type">{type} · {roleLabel}</span>
           </div>
           <p className="break-card-summary">
-            {breakDuration} min break after {shiftDuration}+ hr shifts · Take between {earliest}–{latest} hrs in · {roleLabel}
+            {breakDuration} min break after {shiftDuration}+ hr shifts · Take between {earliest}–{latest} hrs in
           </p>
+          <div className="break-card-chips">
+            {chips.map(c => (
+              <span key={c.label} className={`break-chip ${c.active ? 'active' : ''}`}>{c.label}</span>
+            ))}
+          </div>
         </div>
         <ChevronRight size={16} className="break-card-chevron" />
       </div>
-
-      {modifiers.length > 0 && (
-        <div className="break-card-modifiers">
-          {modifiers.map(m => (
-            <span key={m} className="break-modifier">{m}</span>
-          ))}
-        </div>
-      )}
     </div>
   )
 }
@@ -1799,10 +1887,6 @@ function OvertimePage({ hasOvertimeConfig, isCaliforniaScope, onApply, scopeCont
   return (
     <div className="content-inner">
       <div className="page-header">
-        <div>
-          <h1 className="page-title">Overtime</h1>
-          <p className="page-subtitle">Set overtime thresholds for calculating pay</p>
-        </div>
         <OverrideLock settingKey="overtime" scopeContext={scopeContext} />
       </div>
 
@@ -1811,7 +1895,6 @@ function OvertimePage({ hasOvertimeConfig, isCaliforniaScope, onApply, scopeCont
           <ComplianceModule
             status={complianceStatus}
             onAutoApply={handleAutoApply}
-            emptyIcon={Timer}
             emptyTitle="No overtime thresholds configured"
             emptyDescription="Overtime thresholds determine when workers earn overtime pay. We detected this location is in California and can auto-apply compliant thresholds."
             compliantLabel="Compliant with California overtime requirements"
@@ -1834,25 +1917,95 @@ function OvertimePage({ hasOvertimeConfig, isCaliforniaScope, onApply, scopeCont
 }
 
 // ============================================================
-// SHIFT ENFORCEMENT PAGE
+// CLOCK-IN & OUT PAGE
 // ============================================================
 
-function ShiftEnforcementPage({ scopeContext }) {
+function ClockInOutPage({ scopeContext }) {
   const { markDirty, isPageLocked, syncValues, getInitialValues } = scopeContext
-  const locked = isPageLocked('earlyClockIn')
-  const init = getInitialValues('shift_enforcement')
+  const locked = isPageLocked('clockIn')
+  const init = getInitialValues('clock_in_out')
   const [earlyClockIn, setEarlyClockIn] = useState(init.earlyClockIn)
   const [earlyMins, setEarlyMins] = useState(init.earlyMins)
   const [geofence, setGeofence] = useState(init.geofence)
+  const [clockInMethod, setClockInMethod] = useState(init.clockInMethod ?? 'both')
   const [autoClockOut, setAutoClockOut] = useState(init.autoClockOut)
   const [clockOutTime, setClockOutTime] = useState(init.clockOutTime)
   const [timeRounding, setTimeRounding] = useState(init.timeRounding)
   const [roundMins, setRoundMins] = useState(init.roundMins)
-  const [flags, setFlags] = useState(init.flags ?? DEFAULT_FLAGS_CONST)
 
   useEffect(() => {
-    syncValues('shift_enforcement', { earlyClockIn, earlyMins, geofence, autoClockOut, clockOutTime, timeRounding, roundMins, flags })
-  }, [earlyClockIn, earlyMins, geofence, autoClockOut, clockOutTime, timeRounding, roundMins, flags])
+    syncValues('clock_in_out', { earlyClockIn, earlyMins, geofence, clockInMethod, autoClockOut, clockOutTime, timeRounding, roundMins })
+  }, [earlyClockIn, earlyMins, geofence, clockInMethod, autoClockOut, clockOutTime, timeRounding, roundMins])
+
+  return (
+    <div className="content-inner">
+      <div className="page-header">
+        <OverrideLock settingKey="clockIn" scopeContext={scopeContext} />
+      </div>
+
+      <div className={locked ? 'form-locked' : ''}>
+        <SettingsSection title="Clock-in" description="Control when, where, and how employees are allowed to clock in.">
+          <SettingToggleRow
+            label="Prevent early clock-in"
+            onDescription="Workers cannot clock in before their scheduled shift starts."
+            offDescription="Workers can clock in at any time."
+            enabled={earlyClockIn}
+            onToggle={() => { setEarlyClockIn(!earlyClockIn); markDirty() }}
+            inlineCondition={{ prefix: 'Allow up to', value: earlyMins, onChange: v => { setEarlyMins(v); markDirty() }, suffix: 'mins before shift', placeholder: '0' }}
+          />
+          <SettingToggleRow
+            label="Require location (geofence)"
+            onDescription="Workers must be within range of a location to clock in."
+            offDescription="Workers can clock in from anywhere."
+            enabled={geofence}
+            onToggle={() => { setGeofence(!geofence); markDirty() }}
+          />
+          <SettingValueRow
+            label="Allowed device"
+            description="Whether employees can use their personal phone, a shared store device, or either."
+            value={clockInMethod === 'both' ? 'Both (phone and shared device)' : clockInMethod === 'phone' ? 'Personal phone only' : 'Shared device only'}
+            options={['Both (phone and shared device)', 'Personal phone only', 'Shared device only']}
+            onChange={v => {
+              setClockInMethod(v === 'Personal phone only' ? 'phone' : v === 'Shared device only' ? 'device' : 'both')
+              markDirty()
+            }}
+          />
+        </SettingsSection>
+
+        <SettingsSection title="Clock-out" description="Automatic clock-out and time recording behaviour.">
+          <SettingToggleRow
+            label="Auto clock-out"
+            onDescription="Automatically clock out workers at a set time."
+            offDescription="Workers will not be automatically clocked out."
+            enabled={autoClockOut}
+            onToggle={() => { setAutoClockOut(!autoClockOut); markDirty() }}
+            inlineCondition={{ prefix: 'Clock out at', value: clockOutTime, onChange: v => { setClockOutTime(v); markDirty() }, type: 'time' }}
+          />
+          <SettingToggleRow
+            label="Time rounding"
+            onDescription="Clock in/out times are rounded to the nearest interval."
+            offDescription="Exact clock in/out times are recorded."
+            enabled={timeRounding}
+            onToggle={() => { setTimeRounding(!timeRounding); markDirty() }}
+            inlineCondition={{ prefix: 'Round to nearest', value: roundMins, onChange: v => { setRoundMins(v); markDirty() }, suffix: 'mins' }}
+          />
+        </SettingsSection>
+      </div>
+    </div>
+  )
+}
+
+// ============================================================
+// SHIFT ALERTS PAGE
+// ============================================================
+
+function ShiftAlertsPage({ scopeContext }) {
+  const { markDirty, isPageLocked, syncValues, getInitialValues } = scopeContext
+  const locked = isPageLocked('shiftAlerts')
+  const init = getInitialValues('shift_alerts')
+  const [flags, setFlags] = useState(init.flags ?? DEFAULT_FLAGS_CONST)
+
+  useEffect(() => { syncValues('shift_alerts', { flags }) }, [flags])
 
   const toggleFlag = (id) => {
     setFlags(flags.map(f => f.id === id ? { ...f, enabled: !f.enabled } : f))
@@ -1867,91 +2020,11 @@ function ShiftEnforcementPage({ scopeContext }) {
   return (
     <div className="content-inner">
       <div className="page-header">
-        <div>
-          <h1 className="page-title">Shift Enforcement</h1>
-          <p className="page-subtitle">Control when and where workers can clock in, time tracking, and shift alerts</p>
-        </div>
-        <OverrideLock settingKey="earlyClockIn" scopeContext={scopeContext} />
+        <OverrideLock settingKey="shiftAlerts" scopeContext={scopeContext} />
       </div>
 
       <div className={locked ? 'form-locked' : ''}>
-        <SettingsSection title="Early clock-in" description="Control whether workers can clock in before their shift starts.">
-          <SettingToggleRow
-            label="Prevent early clock-in"
-            onDescription="When on, workers cannot clock in before their scheduled shift."
-            offDescription="When off, workers can clock in at any time."
-            enabled={earlyClockIn}
-            onToggle={() => { setEarlyClockIn(!earlyClockIn); markDirty() }}
-          />
-          {earlyClockIn && (
-            <SettingChildRow>
-              <SettingValueRow
-                label="Buffer time"
-                description="How many minutes before their shift workers can clock in"
-                value={earlyMins}
-                suffix="mins"
-                type="number"
-                placeholder="Not set"
-                onChange={v => { setEarlyMins(v); markDirty() }}
-              />
-            </SettingChildRow>
-          )}
-        </SettingsSection>
-
-        <SettingsSection title="Geofence" description="Restrict clock-in to a set area around your workplace.">
-          <SettingToggleRow
-            label="Require location"
-            onDescription="When on, workers must be within range of a location to clock in."
-            offDescription="When off, workers can clock in from anywhere."
-            enabled={geofence}
-            onToggle={() => { setGeofence(!geofence); markDirty() }}
-          />
-        </SettingsSection>
-
-        <SettingsSection title="Auto clock-out" description="Automatically clock out workers who forget to clock out.">
-          <SettingToggleRow
-            label="Enable auto clock-out"
-            onDescription="When on, automatically clock out workers at a set time."
-            offDescription="When off, workers will not be automatically clocked out."
-            enabled={autoClockOut}
-            onToggle={() => { setAutoClockOut(!autoClockOut); markDirty() }}
-          />
-          {autoClockOut && (
-            <SettingChildRow>
-              <SettingValueRow
-                label="Clock-out time"
-                description="Workers will be clocked out at this time"
-                value={clockOutTime}
-                onChange={v => { setClockOutTime(v); markDirty() }}
-                type="time"
-              />
-            </SettingChildRow>
-          )}
-        </SettingsSection>
-
-        <SettingsSection title="Time rounding" description="Round clock in/out times to reduce payroll discrepancies.">
-          <SettingToggleRow
-            label="Enable time rounding"
-            onDescription="When on, clock in/out times are rounded to the nearest interval."
-            offDescription="When off, exact clock in/out times are recorded."
-            enabled={timeRounding}
-            onToggle={() => { setTimeRounding(!timeRounding); markDirty() }}
-          />
-          {timeRounding && (
-            <SettingChildRow>
-              <SettingValueRow
-                label="Round to nearest"
-                description="Clock in/out times will be rounded to this interval"
-                value={roundMins}
-                suffix="mins"
-                type="number"
-                onChange={v => { setRoundMins(v); markDirty() }}
-              />
-            </SettingChildRow>
-          )}
-        </SettingsSection>
-
-        <SettingsSection title="Shift flags" description="Flags highlight shifts that may need manager attention. Toggle each flag on or off and adjust thresholds where applicable.">
+        <SettingsSection description="Flags highlight shifts that may need manager attention. Toggle each on or off and adjust thresholds where applicable.">
           {flags.map(flag => (
             <div key={flag.id} className="flag-row">
               <div className={`flag-row-content ${!flag.enabled ? 'disabled' : ''}`}>
@@ -2002,10 +2075,6 @@ function ShiftPoolPage({ scopeContext }) {
   return (
     <div className="content-inner">
       <div className="page-header">
-        <div>
-          <h1 className="page-title">Shift Pool</h1>
-          <p className="page-subtitle">Configure how open shifts are posted and who can see them</p>
-        </div>
         <OverrideLock settingKey="shiftsFlags" scopeContext={scopeContext} />
       </div>
 
@@ -2035,7 +2104,61 @@ function ShiftPoolPage({ scopeContext }) {
   )
 }
 
+// ============================================================
+// SCHEDULE VISIBILITY PAGE
+// ============================================================
 
+const VISIBILITY_OPTIONS = [
+  { value: 'everyone',    label: 'All team members',           description: 'Employees can see the full schedule for everyone at this location.' },
+  { value: 'department',  label: 'Same department only',       description: 'Employees can only see schedules of coworkers in their own department.' },
+  { value: 'team_only',   label: 'Team members, not managers', description: 'Employees see peer schedules but manager and supervisor shifts are hidden.' },
+  { value: 'own_only',    label: 'Own schedule only',          description: 'Employees can only see their own upcoming shifts.' },
+]
+
+function ScheduleVisibilityPage({ scopeContext }) {
+  const { markDirty, isPageLocked, syncValues, getInitialValues } = scopeContext
+  const locked = isPageLocked('scheduleVisibility')
+  const init = getInitialValues('schedule_visibility')
+  const [employeeVisibility, setEmployeeVisibility] = useState(init.employeeVisibility ?? 'everyone')
+  const [managersAlwaysVisible, setManagersAlwaysVisible] = useState(init.managersAlwaysVisible ?? true)
+
+  useEffect(() => { syncValues('schedule_visibility', { employeeVisibility, managersAlwaysVisible }) }, [employeeVisibility, managersAlwaysVisible])
+
+  const selected = VISIBILITY_OPTIONS.find(o => o.value === employeeVisibility) ?? VISIBILITY_OPTIONS[0]
+
+  return (
+    <div className="content-inner">
+      <div className="page-header">
+        <OverrideLock settingKey="scheduleVisibility" scopeContext={scopeContext} />
+      </div>
+
+      <div className={locked ? 'form-locked' : ''}>
+        <SettingsSection title="Employee schedule visibility" description="Control how much of the schedule each employee can see in the app.">
+          <SettingValueRow
+            label="Employees can see"
+            description={selected.description}
+            value={selected.label}
+            options={VISIBILITY_OPTIONS.map(o => o.label)}
+            onChange={v => {
+              const opt = VISIBILITY_OPTIONS.find(o => o.label === v)
+              if (opt) { setEmployeeVisibility(opt.value); markDirty() }
+            }}
+          />
+        </SettingsSection>
+
+        <SettingsSection title="Manager visibility">
+          <SettingToggleRow
+            label="Managers always see full schedule"
+            onDescription="Managers and supervisors have full visibility regardless of the employee setting above."
+            offDescription="Managers follow the same visibility rules as other employees."
+            enabled={managersAlwaysVisible}
+            onToggle={() => { setManagersAlwaysVisible(!managersAlwaysVisible); markDirty() }}
+          />
+        </SettingsSection>
+      </div>
+    </div>
+  )
+}
 
 // ============================================================
 // PAY SCHEDULE PAGE (now under Payroll)
@@ -2054,10 +2177,6 @@ function PaySchedulePage({ scopeContext }) {
   return (
     <div className="content-inner">
       <div className="page-header">
-        <div>
-          <h1 className="page-title">Pay Schedule</h1>
-          <p className="page-subtitle">Configure pay periods and frequency</p>
-        </div>
         <OverrideLock settingKey="paySchedule" scopeContext={scopeContext} />
       </div>
 
@@ -2321,10 +2440,6 @@ function ManageLocationsPage() {
   return (
     <div className="content-inner">
       <div className="page-header">
-        <div>
-          <h1 className="page-title">Manage Locations</h1>
-          <p className="page-subtitle">Configure settings and status for each location</p>
-        </div>
         <button className="btn-primary" onClick={() => alert('Add location — not yet implemented')}>
           <Plus size={16} /> Add location
         </button>
@@ -2404,10 +2519,6 @@ function DesignReferencePage() {
   return (
     <div className="content-inner">
       <div className="page-header">
-        <div>
-          <h1 className="page-title">Design Reference</h1>
-          <p className="page-subtitle">Architecture, interaction patterns, data models, and component API for the settings redesign</p>
-        </div>
       </div>
 
       {/* ================================================================
@@ -3033,7 +3144,7 @@ function SettingChildRow({ children }) {
  * SettingToggleRow — a row with label + description + toggle (right-aligned).
  * Optionally shows a read-only value summary when enabled.
  */
-function SettingToggleRow({ label, description, onDescription, offDescription, enabled, onToggle, value }) {
+function SettingToggleRow({ label, description, onDescription, offDescription, enabled, onToggle, value, inlineCondition }) {
   const displayDescription = enabled ? (onDescription || description) : (offDescription || description)
 
   return (
@@ -3041,6 +3152,20 @@ function SettingToggleRow({ label, description, onDescription, offDescription, e
       <div className="ss-row-text">
         <div className="ss-row-label">{label}</div>
         {displayDescription && <div className="ss-row-desc">{displayDescription}</div>}
+        {enabled && inlineCondition && (
+          <div className="flag-row-condition">
+            {inlineCondition.prefix && <span className="flag-row-condition-label">{inlineCondition.prefix}</span>}
+            <input
+              className="flag-row-condition-input"
+              type={inlineCondition.type || 'number'}
+              value={inlineCondition.value}
+              placeholder={inlineCondition.placeholder}
+              min="0"
+              onChange={e => inlineCondition.onChange(e.target.value)}
+            />
+            {inlineCondition.suffix && <span className="flag-row-condition-unit">{inlineCondition.suffix}</span>}
+          </div>
+        )}
       </div>
       {enabled && value && (
         <span className="ss-row-value">{value}</span>

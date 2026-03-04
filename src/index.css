@@ -30,8 +30,7 @@
 }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text',
-    'Helvetica Neue', Helvetica, Arial, sans-serif;
+  font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   color: var(--text-primary);
@@ -358,6 +357,20 @@ body {
 }
 .settings-nav-dot.error { background: var(--error); }
 
+.settings-nav-compliance-icon {
+  color: var(--error);
+  flex-shrink: 0;
+}
+
+.settings-nav-override-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--warning);
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
 /* ============ SETTINGS TOOLBAR ============ */
 /* Compliance banner — full width, sits at top of content */
 .compliance-banner {
@@ -645,6 +658,11 @@ body {
   font-size: 10px;
 }
 
+.scope-picker-compliance-icon {
+  color: var(--error);
+  flex-shrink: 0;
+}
+
 .scope-picker-override-badge {
   font-size: 10px;
   font-weight: 600;
@@ -665,6 +683,43 @@ body {
   position: relative;
 }
 
+/* Top bar — page title + scope picker */
+.content-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 24px;
+  height: 56px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  gap: 16px;
+}
+
+.content-topbar-left {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.content-topbar-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.content-topbar-subtitle {
+  font-size: 12px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .content-scroll {
   flex: 1;
   overflow-y: auto;
@@ -676,12 +731,16 @@ body {
   margin: 0 auto;
 }
 
-/* Page header with scope badge */
+/* Page header — now just holds OverrideLock or action buttons, right-aligned */
 .page-header {
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
+  align-items: center;
+  justify-content: flex-end;
   margin-bottom: 20px;
+}
+
+.page-header:empty {
+  display: none;
 }
 
 .page-title {
@@ -729,7 +788,7 @@ body {
   margin-left: 4px;
   padding: 2px 8px;
   background: none;
-  border: 1px solid #c7d7fe;
+  border: none;
   border-radius: 5px;
   font-size: 11px;
   font-weight: 600;
@@ -742,38 +801,33 @@ body {
 .override-lock-action-btn:hover {
   background: var(--primary);
   color: #fff;
-  border-color: var(--primary);
 }
 
 /* Unlocked state — custom override active */
 .override-lock.unlocked {
-  color: #3b5bc0;
-  background: #eef2ff;
-  border: 1px solid #c7d7fe;
+  color: #92400e;
+  background: var(--warning-container);
+  border: 1px solid #fcd34d;
   cursor: default;
 }
 
 .override-lock-revert {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
   margin-left: 4px;
   padding: 2px 8px;
   background: none;
-  border: 1px solid #c7d7fe;
+  border: none;
   border-radius: 5px;
   font-size: 11px;
   font-weight: 600;
-  color: #64748b;
+  color: #92400e;
   cursor: pointer;
   font-family: inherit;
-  transition: background 0.15s, color 0.15s, border-color 0.15s;
+  transition: background 0.15s, color 0.15s;
 }
 
 .override-lock-revert:hover {
-  background: #fff0f0;
-  color: #dc2626;
-  border-color: #fca5a5;
+  background: #fde68a;
+  color: #78350f;
 }
 
 /* ============ OVERRIDE LOCK MODAL ============ */
@@ -882,6 +936,85 @@ body {
   background: #c2410c;
 }
 
+.override-lock-modal-confirm:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.override-modal-options {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 16px 0 12px;
+}
+
+.override-modal-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px;
+  border: 1.5px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.override-modal-option:hover {
+  border-color: #93c5fd;
+  background: #f8faff;
+}
+
+.override-modal-option.selected {
+  border-color: var(--primary);
+  background: var(--primary-container);
+}
+
+.override-modal-option-indicator {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 2px solid var(--border);
+  flex-shrink: 0;
+  margin-top: 2px;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.override-modal-option.selected .override-modal-option-indicator {
+  border-color: var(--primary);
+  background: var(--primary);
+  box-shadow: inset 0 0 0 3px white;
+}
+
+.override-modal-option-text {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.override-modal-option-text strong {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.override-modal-option-text span {
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.override-modal-group-select {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1.5px solid var(--border);
+  border-radius: 8px;
+  font-size: 13px;
+  font-family: inherit;
+  color: var(--text-primary);
+  background: var(--surface);
+  cursor: pointer;
+}
+
 /* ============ FORM LOCKED STATE ============ */
 
 .form-locked {
@@ -905,12 +1038,12 @@ body {
 .compliance-module-icon-lg {
   width: 48px;
   height: 48px;
-  background: var(--warning-container);
+  background: var(--error-container);
   border-radius: 12px;
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--warning);
+  color: var(--error);
   margin-bottom: 16px;
 }
 
@@ -1218,7 +1351,7 @@ body {
 /* ============ BREAK RULE CARDS ============ */
 /* Break rule card — scannable, hierarchy-driven */
 .break-card {
-  padding: 16px;
+  padding: 14px 16px;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 10px;
@@ -1246,30 +1379,22 @@ body {
 
 .break-card-title-row {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   gap: 8px;
-  flex-wrap: wrap;
-  margin-bottom: 6px;
+  margin-bottom: 10px;
 }
 
 .break-card-name {
   font-weight: 600;
-  font-size: 15px;
+  font-size: 14px;
   color: var(--text-primary);
 }
 
-.break-badge {
-  padding: 2px 8px;
-  border-radius: 4px;
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.2px;
+.break-card-type {
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-weight: 500;
 }
-
-.break-badge.paid { background: var(--success-container); color: var(--success); }
-.break-badge.unpaid { background: var(--warning-container); color: var(--warning); }
-.break-badge.required { background: var(--info-container); color: var(--info); }
-.break-badge.optional { background: var(--surface-header); color: var(--text-secondary); border: 1px solid var(--border); }
 
 .break-card-summary {
   font-size: 13px;
@@ -1280,27 +1405,34 @@ body {
 
 .break-card-chevron {
   color: var(--text-secondary);
-  opacity: 0.4;
+  opacity: 0.35;
   flex-shrink: 0;
   margin-top: 2px;
 }
 
-.break-card-modifiers {
+.break-card-chips {
   display: flex;
   gap: 6px;
   flex-wrap: wrap;
   margin-top: 10px;
-  padding-top: 10px;
-  border-top: 1px solid var(--border);
 }
 
-.break-modifier {
+.break-chip {
   font-size: 11px;
   font-weight: 500;
-  color: var(--info);
-  background: var(--info-container);
   padding: 2px 8px;
   border-radius: 4px;
+  background: var(--surface-header);
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+  opacity: 0.55;
+}
+
+.break-chip.active {
+  opacity: 1;
+  color: var(--text-primary);
+  background: var(--surface-header);
+  border-color: var(--border);
 }
 
 /* ============ LEGAL NOTE ============ */
@@ -3277,4 +3409,143 @@ body {
 
 .btn-danger-fill:hover {
   opacity: 0.9;
+}
+
+/* Hamburger button — hidden on desktop */
+.topbar-menu-btn {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  color: var(--text-primary);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 6px;
+  flex-shrink: 0;
+}
+
+.topbar-menu-btn:hover {
+  background: var(--surface-header);
+}
+
+/* Nav overlay — hidden on desktop */
+.nav-overlay {
+  display: none;
+}
+
+/* ============ MOBILE RESPONSIVE ============ */
+
+@media (max-width: 768px) {
+
+  /* Nav becomes a slide-out drawer */
+  .settings-nav {
+    position: fixed;
+    left: 0;
+    top: 0;
+    z-index: 100;
+    transform: translateX(-100%);
+    transition: transform 0.25s ease;
+    box-shadow: none;
+  }
+
+  .settings-nav.open {
+    transform: translateX(0);
+    box-shadow: 4px 0 24px rgba(0, 0, 0, 0.15);
+  }
+
+  /* Overlay behind drawer */
+  .nav-overlay {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.3);
+    z-index: 99;
+  }
+
+  /* Show hamburger */
+  .topbar-menu-btn {
+    display: flex;
+  }
+
+  /* Topbar adapts */
+  .content-topbar {
+    padding: 0 16px;
+    height: 48px;
+    gap: 10px;
+  }
+
+  .content-topbar-subtitle {
+    display: none;
+  }
+
+  .content-topbar-title {
+    font-size: 14px;
+  }
+
+  /* Scope picker trigger: remove min-width */
+  .scope-picker-trigger {
+    min-width: 0;
+  }
+
+  .scope-picker-label {
+    display: none;
+  }
+
+  /* Scope picker dropdown caps to viewport */
+  .scope-picker-dropdown {
+    width: calc(100vw - 32px);
+    max-width: 340px;
+    right: 0;
+    left: auto;
+  }
+
+  /* Content area: tighter padding */
+  .content-scroll {
+    padding: 16px;
+  }
+
+  /* Grids stack */
+  .two-col {
+    grid-template-columns: 1fr;
+  }
+
+  .bre-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .bre-grid-item:nth-child(odd) {
+    border-right: none;
+  }
+
+  /* Role picker dropdown caps to viewport */
+  .role-picker-dropdown {
+    min-width: 0;
+    width: calc(100vw - 64px);
+    max-width: 320px;
+  }
+
+  /* Page header */
+  .page-header {
+    margin-bottom: 14px;
+  }
+
+  /* Break cards */
+  .break-card-chips {
+    gap: 4px;
+  }
+
+  /* Compliance module */
+  .compliance-module.empty {
+    padding: 16px;
+  }
+
+  .compliance-module-row {
+    flex-wrap: wrap;
+  }
+
+  /* Main sidebar (non-settings app shell) */
+  .main-sidebar {
+    display: none;
+  }
 }
