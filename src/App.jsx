@@ -6,7 +6,7 @@ import {
   ChevronRight, Pin, Scan, Lightbulb, Construction, CalendarDays, Tablet,
   TriangleAlert, X, Check, ArrowRight, Sparkles, CircleAlert, ChevronDown,
   RotateCcw, Trash2, ChevronLeft, ToggleLeft, ToggleRight, Search,
-  FileText, Eye, EyeOff, Lock, LockOpen, Menu
+  FileText, Eye, EyeOff, Lock, LockOpen, Menu, Languages, Palette
 } from 'lucide-react'
 
 // ============================================================
@@ -268,7 +268,7 @@ const DEFAULT_PAGE_VALUES = {
 
 function SettingsScreen({ onBack }) {
   const [category, setCategory] = useState('time_and_scheduling')
-  const [item, setItem] = useState('shift_enforcement')
+  const [item, setItem] = useState('shift_pool')
   const [showComplianceWizard, setShowComplianceWizard] = useState(false)
   const [navOpen, setNavOpen] = useState(false)
 
@@ -296,6 +296,7 @@ function SettingsScreen({ onBack }) {
   // ── Per-scope saved values ──────────────────────────────────────────
   // savedValues[scopeId][pageId] = last explicitly saved snapshot
   // workingValues[scopeId][pageId] = live form state (synced by each page)
+  const [showInheritanceBadge, setShowInheritanceBadge] = useState(false)
   const [savedValues, setSavedValues] = useState({})
   const [workingValues, setWorkingValues] = useState({})
 
@@ -366,13 +367,21 @@ function SettingsScreen({ onBack }) {
   const effectiveBreaks = getInitialValues('breaks')
   const effectiveOvertime = getInitialValues('overtime')
   const hasBreakRules = !isCaliforniaScope || (effectiveBreaks?.hasBreakRules) || (effectiveBreaks?.rules?.length > 0) || false
-  const hasOvertimeConfig = !isCaliforniaScope || effectiveOvertime?.configured || false
+  const otWeekly = parseInt(effectiveOvertime?.weeklyHrs) || 0
+  const otDaily = parseInt(effectiveOvertime?.dailyHrs) || 0
+  const otDouble = parseInt(effectiveOvertime?.doubleHrs) || 0
+  const hasOvertimeConfig = !isCaliforniaScope || (
+    effectiveOvertime?.configured &&
+    otWeekly > 0 && otWeekly <= 40 &&
+    otDaily > 0 && otDaily <= 8 &&
+    otDouble > 0 && otDouble <= 12
+  ) || false
   const isCompliant = hasBreakRules && hasOvertimeConfig
 
   // ── Dirty / nav state ───────────────────────────────────────────────
   const [isDirty, setIsDirty] = useState(false)
   const [pendingNav, setPendingNav] = useState(null)
-  const [showToast, setShowToast] = useState(false)
+  const [toastMessage, setToastMessage] = useState(null)
   // discardKey: incrementing this remounts ContentRouter, resetting pages to saved values
   const [discardKey, setDiscardKey] = useState(0)
   const toastTimer = useRef(null)
@@ -380,10 +389,10 @@ function SettingsScreen({ onBack }) {
   const markDirty = () => setIsDirty(true)
   const markClean = () => setIsDirty(false)
 
-  const triggerToast = () => {
-    setShowToast(true)
+  const triggerToast = (msg) => {
+    setToastMessage(msg ?? '')
     if (toastTimer.current) clearTimeout(toastTimer.current)
-    toastTimer.current = setTimeout(() => setShowToast(false), 3000)
+    toastTimer.current = setTimeout(() => setToastMessage(null), 3000)
   }
 
   const handleNav = (cat, itm) => {
@@ -423,13 +432,15 @@ function SettingsScreen({ onBack }) {
 
   const handleGoBack = () => { setPendingNav(null) }
 
-  // Compliance wizard apply — also writes into saved + working values
+  // Compliance wizard apply — writes into saved + working values and auto-saves
   const handleApplyBreaks = () => {
     const sid = getScopeId()
     const v = { rules: DEFAULT_BREAK_RULES_CONST, hasBreakRules: true }
     setSavedValues(prev => ({ ...prev, [sid]: { ...(prev[sid] || {}), breaks: v } }))
     setWorkingValues(prev => ({ ...prev, [sid]: { ...(prev[sid] || {}), breaks: v } }))
-    setDiscardKey(k => k + 1) // remount breaks page with new saved values
+    setDiscardKey(k => k + 1)
+    markClean()
+    triggerToast('California break rules applied and saved.')
   }
   const handleApplyOvertime = () => {
     const sid = getScopeId()
@@ -437,6 +448,8 @@ function SettingsScreen({ onBack }) {
     setSavedValues(prev => ({ ...prev, [sid]: { ...(prev[sid] || {}), overtime: v } }))
     setWorkingValues(prev => ({ ...prev, [sid]: { ...(prev[sid] || {}), overtime: v } }))
     setDiscardKey(k => k + 1)
+    markClean()
+    triggerToast('California overtime thresholds applied and saved.')
   }
   const handleApplyAll = () => { handleApplyBreaks(); handleApplyOvertime() }
 
@@ -510,7 +523,13 @@ function SettingsScreen({ onBack }) {
     const breaks = getEffectiveForScope(scopeId, 'breaks')
     const overtime = getEffectiveForScope(scopeId, 'overtime')
     const hasBreaks = breaks?.hasBreakRules || (breaks?.rules?.length > 0)
-    const hasOT = overtime?.configured
+    const scopeOtWeekly = parseInt(overtime?.weeklyHrs) || 0
+    const scopeOtDaily = parseInt(overtime?.dailyHrs) || 0
+    const scopeOtDouble = parseInt(overtime?.doubleHrs) || 0
+    const hasOT = overtime?.configured &&
+      scopeOtWeekly > 0 && scopeOtWeekly <= 40 &&
+      scopeOtDaily > 0 && scopeOtDaily <= 8 &&
+      scopeOtDouble > 0 && scopeOtDouble <= 12
     return !(hasBreaks && hasOT)
   }
 
@@ -519,8 +538,11 @@ function SettingsScreen({ onBack }) {
     ...LOCATIONS.map(l => [l.id, isScopeNonCompliant(l.id)]),
   ])
 
-  const currentNavItem = NAV.find(s => s.category === category)?.items.find(i => i.id === item)
-  const pageTitle = currentNavItem?.label ?? item.replace(/_/g, ' ')
+  const currentNavSection = NAV.find(s => s.sections.some(sec => sec.items.some(i => i.id === item)))
+  const sectionTitle = currentNavSection?.title ?? item.replace(/_/g, ' ')
+  const allNavItems = NAV.flatMap(s => s.sections.flatMap(sec => sec.items))
+  const currentNavItem = allNavItems.find(i => i.id === item)
+  const pageLabel = currentNavItem?.label
   const pageSubtitle = currentNavItem?.subtitle
 
   const handleNavMobile = (cat, itm) => {
@@ -531,26 +553,13 @@ function SettingsScreen({ onBack }) {
   return (
     <>
       {navOpen && <div className="nav-overlay" onClick={() => setNavOpen(false)} />}
-      <SettingsNav
-        category={category}
-        item={item}
-        hasBreakRules={hasBreakRules}
-        hasOvertimeConfig={hasOvertimeConfig}
-        onNav={handleNavMobile}
-        onBack={onBack}
-        isCompanyScope={isCompanyScope}
-        isPageLocked={isPageLocked}
-        isOpen={navOpen}
-      />
-      <div className="settings-content">
+      <SettingsCategorySidebar onBack={onBack} onToggleInheritance={() => setShowInheritanceBadge(v => !v)} />
+      <div className="settings-main">
         <div className="content-topbar">
           <button className="topbar-menu-btn" onClick={() => setNavOpen(true)}>
             <Menu size={20} />
           </button>
-          <div className="content-topbar-left">
-            <span className="content-topbar-title">{pageTitle}</span>
-            {pageSubtitle && <span className="content-topbar-subtitle">{pageSubtitle}</span>}
-          </div>
+          <span className="content-topbar-title">{sectionTitle}</span>
           <ScopePicker
             selectedScope={selectedScope}
             onSelect={setSelectedScope}
@@ -559,26 +568,51 @@ function SettingsScreen({ onBack }) {
             complianceIssues={scopeComplianceIssues}
           />
         </div>
-        <div className="content-scroll">
-          <ContentRouter
-            key={`${getScopeId()}-${discardKey}`}
+        <div className="settings-body">
+          <SettingsNav
             category={category}
             item={item}
-            scopeContext={scopeContext}
             hasBreakRules={hasBreakRules}
             hasOvertimeConfig={hasOvertimeConfig}
-            isCaliforniaScope={isCaliforniaScope}
-            onApplyBreaks={handleApplyBreaks}
-            onApplyOvertime={handleApplyOvertime}
+            onNav={handleNavMobile}
+            isCompanyScope={isCompanyScope}
+            isPageLocked={isPageLocked}
+            isOpen={navOpen}
           />
-        </div>
+          <div className="settings-content">
+            <div className="content-scroll">
+              {pageLabel && (
+                <div className="page-title-block">
+                  <div className="page-title-row">
+                    <h2 className="page-title">{pageLabel}</h2>
+                    {showInheritanceBadge && currentNavItem?.settingKey && (
+                      <OverrideLock settingKey={currentNavItem.settingKey} scopeContext={scopeContext} />
+                    )}
+                  </div>
+                  {pageSubtitle && <p className="page-subtitle">{pageSubtitle}</p>}
+                </div>
+              )}
+              <ContentRouter
+                key={`${getScopeId()}-${discardKey}`}
+                category={category}
+                item={item}
+                scopeContext={scopeContext}
+                hasBreakRules={hasBreakRules}
+                hasOvertimeConfig={hasOvertimeConfig}
+                isCaliforniaScope={isCaliforniaScope}
+                onApplyBreaks={handleApplyBreaks}
+                onApplyOvertime={handleApplyOvertime}
+              />
+            </div>
 
-        {isDirty && !pendingNav && (
-          <UnsavedChangesBar onDiscard={handleDiscardInPlace} onSave={handleSave} />
-        )}
+            {isDirty && !pendingNav && (
+              <UnsavedChangesBar onDiscard={handleDiscardInPlace} onSave={handleSave} />
+            )}
+          </div>
+        </div>
       </div>
 
-      {showToast && <SaveToast onClose={() => setShowToast(false)} />}
+      {toastMessage != null && <SaveToast message={toastMessage || undefined} onClose={() => setToastMessage(null)} />}
 
       {pendingNav && (
         <SaveChangesModal onGoBack={handleGoBack} onDiscard={handleDiscard} onSave={handleSaveAndContinue} />
@@ -646,11 +680,11 @@ function UnsavedChangesBar({ onDiscard, onSave }) {
 // SAVE TOAST
 // ============================================================
 
-function SaveToast({ onClose }) {
+function SaveToast({ message, onClose }) {
   return (
     <div className="save-toast">
       <div className="save-toast-icon"><CircleCheck size={18} /></div>
-      <span>Settings saved successfully.</span>
+      <span>{message || 'Settings saved successfully.'}</span>
       <button className="save-toast-close" onClick={onClose}><X size={14} /></button>
     </div>
   )
@@ -780,86 +814,95 @@ function ScopePicker({ selectedScope, onSelect, locationOverrideCounts, groupOve
 
 const NAV = [
   {
-    title: 'Profile', category: 'profile', items: [
-      { id: 'avatar', label: 'Avatar' },
-      { id: 'login_security', label: 'Login and security' },
-    ]
-  },
-  {
-    title: 'Payroll', category: 'payroll', items: [
-      { id: 'pay_schedule', label: 'Pay schedule', settingKey: 'paySchedule', subtitle: 'Configure pay periods and frequency' },
-      { id: 'payroll_other', label: 'Payroll integration' },
-    ]
-  },
-  {
-    title: 'Time and Scheduling', category: 'time_and_scheduling', items: [
-      { id: 'shift_pool', label: 'Open shifts', settingKey: 'shiftsFlags', subtitle: 'Configure how open shifts are posted and who can see them' },
-      { id: 'clock_in_out', label: 'Shift enforcement', settingKey: 'clockIn', subtitle: 'Control when, where and how employees clock in and out' },
-      { id: 'shift_alerts', label: 'Alerts', settingKey: 'shiftAlerts', subtitle: 'Flag shifts that need manager attention' },
-      { id: 'schedule_visibility', label: 'Schedule visibility', settingKey: 'scheduleVisibility', subtitle: 'Control what employees can see in the schedule' },
-    ]
-  },
-  {
-    title: 'Compliance', category: 'compliance', items: [
-      { id: 'overtime', label: 'Overtime', complianceKey: 'overtime', settingKey: 'overtime', subtitle: 'Set overtime thresholds for calculating pay' },
-      { id: 'breaks', label: 'Breaks', complianceKey: 'breaks', settingKey: 'breaks', subtitle: 'Configure required meal and rest breaks' },
-    ]
-  },
-  {
-    title: 'Locations', category: 'locations', items: [
-      { id: 'manage_locations', label: 'Manage locations', subtitle: 'View and configure your locations' },
-    ]
-  },
-  {
-    title: 'Reference', category: 'reference', items: [
-      { id: 'design_reference', label: 'Design reference' },
+    title: 'Time and Scheduling', sections: [
+      {
+        title: 'Basic', items: [
+          { id: 'shift_pool', category: 'time_and_scheduling', label: 'Open shifts', settingKey: 'shiftsFlags', subtitle: 'Configure how open shifts are posted and who can see them' },
+          { id: 'clock_in_out', category: 'time_and_scheduling', label: 'Shift enforcement', settingKey: 'clockIn', subtitle: 'Control when, where and how employees clock in and out' },
+          { id: 'shift_alerts', category: 'time_and_scheduling', label: 'Flags', settingKey: 'shiftAlerts', subtitle: 'Flag shifts that need manager attention' },
+          { id: 'schedule_visibility', category: 'time_and_scheduling', label: 'Schedule visibility', settingKey: 'scheduleVisibility', subtitle: 'Control what employees can see in the schedule' },
+        ]
+      },
+      {
+        title: 'Compliance', items: [
+          { id: 'breaks', category: 'compliance', label: 'Breaks', complianceKey: 'breaks', settingKey: 'breaks', subtitle: 'Configure required meal and rest breaks' },
+          { id: 'overtime', category: 'compliance', label: 'Overtime', complianceKey: 'overtime', settingKey: 'overtime', subtitle: 'Set overtime thresholds for calculating pay' },
+        ]
+      },
+      {
+        title: 'Locations', items: [
+          { id: 'manage_locations', category: 'locations', label: 'Manage locations', subtitle: 'View and configure your locations' },
+        ]
+      },
     ]
   },
 ]
 
-function SettingsNav({ category, item, hasBreakRules, hasOvertimeConfig, onNav, onBack, isCompanyScope, isPageLocked, isOpen }) {
-  return (
-    <nav className={`settings-nav ${isOpen ? 'open' : ''}`}>
-      {/* Back header */}
-      <div className="settings-nav-header">
-        <button className="settings-nav-back" onClick={onBack}>
-          <ChevronLeft size={18} />
-          <span>Back</span>
-        </button>
-        <div className="settings-nav-title">
-          <Settings size={16} />
-          <span>Settings</span>
-        </div>
-      </div>
+const CATEGORY_SIDEBAR_ITEMS = [
+  { icon: Shield, label: 'Account & Security' },
+  { icon: Languages, label: 'Language' },
+  { icon: Palette, label: 'Appearance' },
+  { separator: true },
+  { icon: Clock, label: 'Time and Scheduling', active: true },
+  { icon: DollarSign, label: 'Payroll' },
+  { icon: MessageCircle, label: 'Chat' },
+  { icon: FileText, label: 'Logbook' },
+]
 
-      {/* Nav sections */}
-      <div className="settings-nav-sections">
-        {NAV.map((section, si) => {
-          const cat = section.category
-          return (
-            <div key={si} className="settings-nav-group">
-              <div className="settings-nav-section-title">{section.title}</div>
-              {section.items.map((navItem) => {
-                const showDot = navItem.complianceKey && (
-                  (navItem.complianceKey === 'breaks' && !hasBreakRules) ||
-                  (navItem.complianceKey === 'overtime' && !hasOvertimeConfig)
-                )
-                const showOverrideBadge = !isCompanyScope && navItem.settingKey && isPageLocked && !isPageLocked(navItem.settingKey)
-                return (
-                  <div
-                    key={navItem.id}
-                    className={`settings-nav-item ${category === cat && item === navItem.id ? 'active' : ''}`}
-                    onClick={() => onNav(cat, navItem.id)}
-                  >
-                    {showDot && <ShieldAlert size={13} className="settings-nav-compliance-icon" />}
-                    <span>{navItem.label}</span>
-                    {showOverrideBadge && <span className="settings-nav-override-dot" />}
-                  </div>
-                )
-              })}
+function SettingsCategorySidebar({ onBack, onToggleInheritance }) {
+  return (
+    <nav className="settings-category-sidebar">
+      <div className="category-sidebar-header">
+        <button className="category-sidebar-back" onClick={onBack}>
+          <ChevronLeft size={16} />
+        </button>
+        <span className="category-sidebar-title" onDoubleClick={onToggleInheritance} style={{ cursor: 'default', userSelect: 'none' }}>Settings</span>
+      </div>
+      <div className="category-sidebar-items">
+        {CATEGORY_SIDEBAR_ITEMS.map((cat, i) => cat.separator
+          ? <div key={i} className="category-sidebar-separator" />
+          : (
+            <div key={i} className={`category-sidebar-item ${cat.active ? 'active' : ''}`}>
+              <div className="category-sidebar-icon-wrap">
+                <cat.icon size={16} className="category-sidebar-icon" />
+              </div>
+              <span>{cat.label}</span>
             </div>
           )
-        })}
+        )}
+      </div>
+    </nav>
+  )
+}
+
+function SettingsNav({ category, item, hasBreakRules, hasOvertimeConfig, onNav, isCompanyScope, isPageLocked, isOpen }) {
+  const activeSection = NAV[0]
+  return (
+    <nav className={`settings-nav ${isOpen ? 'open' : ''}`}>
+      <div className="settings-nav-sections">
+        {activeSection.sections.map((section, si) => (
+          <div key={si} className="settings-nav-group">
+            <div className="settings-nav-section-title">{section.title}</div>
+            {section.items.map((navItem) => {
+              const showDot = navItem.complianceKey && (
+                (navItem.complianceKey === 'breaks' && !hasBreakRules) ||
+                (navItem.complianceKey === 'overtime' && !hasOvertimeConfig)
+              )
+              const showOverrideBadge = !isCompanyScope && navItem.settingKey && isPageLocked && !isPageLocked(navItem.settingKey)
+              return (
+                <div
+                  key={navItem.id}
+                  className={`settings-nav-item ${navItem.category === category && item === navItem.id ? 'active' : ''}`}
+                  onClick={() => onNav(navItem.category, navItem.id)}
+                >
+                  {showDot && <ShieldAlert size={13} className="settings-nav-compliance-icon" />}
+                  <span>{navItem.label}</span>
+                  {showOverrideBadge && <span className="settings-nav-override-dot" />}
+                </div>
+              )
+            })}
+          </div>
+        ))}
       </div>
     </nav>
   )
@@ -1340,8 +1383,78 @@ function AlignSettingsModal({ locationName, locationId, settingLabel, onApply, o
 // ============================================================
 // States: 'empty' (FTUX), 'compliant', 'warning' (fell out)
 
-function ComplianceModule({ status, onAutoApply, emptyTitle, emptyDescription, compliantLabel, warningLabel, warningDescription, autoApplyLabel, legalCode, legalSummary }) {
+function ComplianceAutoApplyModal({ title, bodyText, previewItems, legalCode, legalSummary, onApply, onClose }) {
+  const [visible, setVisible] = useState(false)
+  const [legalOpen, setLegalOpen] = useState(false)
+  useEffect(() => { requestAnimationFrame(() => setVisible(true)) }, [])
+
+  const handleClose = () => { setVisible(false); setTimeout(onClose, 200) }
+  const handleApply = () => { setVisible(false); setTimeout(onApply, 200) }
+
+  return (
+    <div className={`dialog-overlay compliance-apply-overlay ${visible ? 'visible' : ''}`} onClick={handleClose}>
+      <div className={`compliance-apply-modal ${visible ? 'visible' : ''}`} onClick={e => e.stopPropagation()}>
+        <div className="compliance-apply-modal-header">
+          <div className="compliance-apply-modal-icon"><Sparkles size={22} /></div>
+          <h3>{title}</h3>
+          <button className="compliance-apply-modal-close" onClick={handleClose}><X size={18} /></button>
+        </div>
+
+        <div className="compliance-apply-body">
+          <p>{bodyText}</p>
+          <p className="compliance-apply-body-sub">Here are the changes we'll make:</p>
+        </div>
+
+        <div className="compliance-apply-preview">
+          <div className="compliance-apply-preview-items">
+            {previewItems.map((item, i) => (
+              <div key={i} className="compliance-apply-preview-item">
+                <div className="compliance-apply-preview-check"><Check size={14} /></div>
+                <div className="compliance-apply-preview-text">
+                  <strong>{item.label}</strong>
+                  <span>{item.detail}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="compliance-apply-legal">
+          <button className="compliance-apply-legal-toggle" onClick={() => setLegalOpen(!legalOpen)}>
+            <Info size={13} />
+            <span>{legalCode}</span>
+            <ChevronDown size={14} className={`compliance-legal-chevron ${legalOpen ? 'open' : ''}`} />
+          </button>
+          {legalOpen && (
+            <div className="compliance-apply-legal-body">
+              <p>{legalSummary}</p>
+            </div>
+          )}
+        </div>
+
+        <div className="compliance-apply-modal-actions">
+          <button className="compliance-apply-modal-cancel" onClick={handleClose}>Cancel</button>
+          <button className="compliance-apply-modal-confirm" onClick={handleApply}>
+            <Wand2 size={15} /> Apply
+          </button>
+        </div>
+
+        <p className="compliance-apply-modal-disclaimer">This is a recommendation and does not constitute legal advice. Always verify with your legal counsel.</p>
+      </div>
+    </div>
+  )
+}
+
+function ComplianceModule({ status, onAutoApply, emptyTitle, emptyDescription, compliantLabel, warningLabel, warningDescription, autoApplyLabel, legalCode, legalSummary, previewItems, previewTitle, previewBodyText }) {
   const [expanded, setExpanded] = useState(false)
+  const [showModal, setShowModal] = useState(false)
+
+  const openModal = () => setShowModal(true)
+
+  const handleConfirm = () => {
+    setShowModal(false)
+    onAutoApply()
+  }
 
   const legalFooter = (
     <div className="compliance-legal">
@@ -1362,37 +1475,65 @@ function ComplianceModule({ status, onAutoApply, emptyTitle, emptyDescription, c
 
   if (status === 'empty') {
     return (
-      <div className="compliance-module empty">
-        <div className="compliance-module-icon-lg"><ShieldAlert size={28} /></div>
-        <div className="compliance-module-body">
-          <h3>{emptyTitle}</h3>
-          <p>{emptyDescription}</p>
+      <>
+        <div className="compliance-module empty">
+          <div className="compliance-module-icon-lg"><ShieldAlert size={28} /></div>
+          <div className="compliance-module-body">
+            <h3>{emptyTitle}</h3>
+            <p>{emptyDescription}</p>
+          </div>
+          <div className="compliance-module-actions">
+            <button className="btn-primary" onClick={openModal}>
+              <Wand2 size={16} /> {autoApplyLabel}
+            </button>
+          </div>
+          {legalFooter}
         </div>
-        <div className="compliance-module-actions">
-          <button className="btn-primary" onClick={onAutoApply}>
-            <Wand2 size={16} /> {autoApplyLabel}
-          </button>
-        </div>
-        {legalFooter}
-      </div>
+        {showModal && (
+          <ComplianceAutoApplyModal
+            title={previewTitle}
+            bodyText={previewBodyText}
+            previewItems={previewItems}
+            legalCode={legalCode}
+            legalSummary={legalSummary}
+            onApply={handleConfirm}
+            onClose={() => setShowModal(false)}
+          />
+        )}
+      </>
     )
   }
 
   if (status === 'warning') {
     return (
-      <div className="compliance-module error">
-        <div className="compliance-module-row">
-          <ShieldAlert size={18} className="compliance-module-icon-error" />
-          <div className="compliance-module-body">
-            <h4>Non-compliance detected</h4>
-            <p>{warningDescription}</p>
+      <>
+        <div className="compliance-module error">
+          <div className="compliance-module-row">
+            <ShieldAlert size={18} className="compliance-module-icon-error" />
+            <div className="compliance-module-body">
+              <h4>Non-compliance detected</h4>
+              <p>{warningDescription}</p>
+            </div>
           </div>
-          <button className="btn-primary btn-sm" onClick={onAutoApply}>
-            <Wand2 size={14} /> {autoApplyLabel}
-          </button>
+          <div className="compliance-module-action-row">
+            <button className="btn-primary btn-sm" onClick={openModal}>
+              <Wand2 size={14} /> {autoApplyLabel}
+            </button>
+          </div>
+          {legalFooter}
         </div>
-        {legalFooter}
-      </div>
+        {showModal && (
+          <ComplianceAutoApplyModal
+            title={previewTitle}
+            bodyText={previewBodyText}
+            previewItems={previewItems}
+            legalCode={legalCode}
+            legalSummary={legalSummary}
+            onApply={handleConfirm}
+            onClose={() => setShowModal(false)}
+          />
+        )}
+      </>
     )
   }
 
@@ -1442,7 +1583,6 @@ function BreaksPage({ hasBreakRules, isCaliforniaScope, onApply, scopeContext })
     onApply()
     setRules(DEFAULT_BREAK_RULES)
     setWasEverCompliant(true)
-    markDirty()
   }
 
   const handleAddNew = () => {
@@ -1490,10 +1630,6 @@ function BreaksPage({ hasBreakRules, isCaliforniaScope, onApply, scopeContext })
 
   return (
     <div className="content-inner">
-      <div className="page-header">
-        <OverrideLock settingKey="breaks" scopeContext={scopeContext} />
-      </div>
-
       <div className={locked ? 'form-locked' : ''}>
         {isCaliforniaScope && (
           <ComplianceModule
@@ -1507,6 +1643,12 @@ function BreaksPage({ hasBreakRules, isCaliforniaScope, onApply, scopeContext })
             autoApplyLabel="Apply California defaults"
             legalCode="Cal. Lab. Code §§ 226.7, 512"
             legalSummary="Employers must provide a 30-minute unpaid meal break for shifts over 5 hours, and a paid 10-minute rest break for every 4 hours worked or major fraction thereof. Employees may waive a meal break if the shift is no more than 6 hours."
+            previewTitle="Apply California defaults?"
+            previewBodyText="We'll apply the following break rules to help you meet California's requirements for non-exempt employees."
+            previewItems={[
+              { label: '30-min Meal Break', detail: 'Unpaid · Required for shifts over 5 hours · Must be taken between hours 5–6' },
+              { label: '10-min Rest Break', detail: 'Paid · Required for every 4 hours worked · Taken between hours 3–4.5' },
+            ]}
           />
         )}
 
@@ -1875,21 +2017,22 @@ function OvertimePage({ hasOvertimeConfig, isCaliforniaScope, onApply, scopeCont
     setWeeklyHrs('40')
     setDailyHrs('8')
     setDoubleHrs('12')
-    markDirty()
   }
 
-  const hasWeekly = parseInt(weeklyHrs) > 0
-  const hasDaily = parseInt(dailyHrs) > 0
-  const hasDouble = parseInt(doubleHrs) > 0
-  const isCompliant = configured && hasWeekly && hasDaily && hasDouble
+  const weekly = parseInt(weeklyHrs) || 0
+  const daily = parseInt(dailyHrs) || 0
+  const double_ = parseInt(doubleHrs) || 0
+  const hasWeekly = weekly > 0
+  const hasDaily = daily > 0
+  const hasDouble = double_ > 0
+  const meetsCaliforniaMinimums = weekly <= 40 && daily <= 8 && double_ <= 12 && hasWeekly && hasDaily && hasDouble
+  const isCompliant = isCaliforniaScope
+    ? configured && meetsCaliforniaMinimums
+    : configured && hasWeekly && hasDaily && hasDouble
   const complianceStatus = !configured ? 'empty' : isCompliant ? 'compliant' : 'warning'
 
   return (
     <div className="content-inner">
-      <div className="page-header">
-        <OverrideLock settingKey="overtime" scopeContext={scopeContext} />
-      </div>
-
       <div className={locked ? 'form-locked' : ''}>
         {isCaliforniaScope && (
           <ComplianceModule
@@ -1898,18 +2041,25 @@ function OvertimePage({ hasOvertimeConfig, isCaliforniaScope, onApply, scopeCont
             emptyTitle="No overtime thresholds configured"
             emptyDescription="Overtime thresholds determine when workers earn overtime pay. We detected this location is in California and can auto-apply compliant thresholds."
             compliantLabel="Compliant with California overtime requirements"
-            warningLabel="Missing overtime thresholds"
-            warningDescription="California requires weekly (40 hr), daily (8 hr), and double OT (12 hr) thresholds."
+            warningLabel="Overtime thresholds do not meet California requirements"
+            warningDescription="California requires overtime (1.5x) after 8 hrs/day or 40 hrs/week, and double time (2x) after 12 hrs/day. Thresholds must be at or below these limits."
             autoApplyLabel="Apply California defaults"
             legalCode="Cal. Lab. Code §§ 510, 511"
-            legalSummary="California requires overtime pay at 1.5x the regular rate for hours worked beyond 8 in a day or 40 in a week, and double-time pay for hours beyond 12 in a day. The 7th consecutive day worked in a workweek also triggers overtime."
+            legalSummary="California mandates overtime pay at 1.5x the regular rate for non-exempt employees working over 8 hours in a day, 40 hours in a week, or on the 7th consecutive workday. Double time (2x) applies after 12 hours in a day or after 8 hours on a 7th consecutive workday."
+            previewTitle="Apply California defaults?"
+            previewBodyText="We'll apply the following overtime thresholds to help you meet California's requirements for non-exempt employees."
+            previewItems={[
+              { label: 'Weekly overtime at 40 hrs', detail: '1.5x pay for hours worked beyond 40 in a workweek' },
+              { label: 'Daily overtime at 8 hrs', detail: '1.5x pay for hours worked beyond 8 in a workday' },
+              { label: 'Daily double time at 12 hrs', detail: '2x pay for hours worked beyond 12 in a workday' },
+            ]}
           />
         )}
 
-        <SettingsSection title="Thresholds" description="Set to 0 hours to disable a threshold.">
-          <SettingValueRow label="Weekly overtime" description="Hours per week before 1.5x overtime" value={weeklyHrs} suffix="hrs" type="number" onChange={v => { setWeeklyHrs(v || '0'); setConfigured(true); markDirty() }} />
-          <SettingValueRow label="Daily overtime" description="Hours per day before 1.5x overtime" value={dailyHrs} suffix="hrs" type="number" onChange={v => { setDailyHrs(v || '0'); setConfigured(true); markDirty() }} />
-          <SettingValueRow label="Daily double overtime" description="Hours per day before 2x overtime" value={doubleHrs} suffix="hrs" type="number" onChange={v => { setDoubleHrs(v || '0'); setConfigured(true); markDirty() }} />
+        <SettingsSection title="Thresholds" description="Define when overtime and double-time rates apply. California requires these be at or below the legal maximums.">
+          <SettingValueRow label="Weekly overtime (1.5x)" description="Hours per week before overtime applies. California max: 40 hrs." value={weeklyHrs} suffix="hrs" type="number" onChange={v => { setWeeklyHrs(v || '0'); setConfigured(true); markDirty() }} />
+          <SettingValueRow label="Daily overtime (1.5x)" description="Hours per day before overtime applies. California max: 8 hrs." value={dailyHrs} suffix="hrs" type="number" onChange={v => { setDailyHrs(v || '0'); setConfigured(true); markDirty() }} />
+          <SettingValueRow label="Daily double time (2x)" description="Hours per day before double time applies. California max: 12 hrs." value={doubleHrs} suffix="hrs" type="number" onChange={v => { setDoubleHrs(v || '0'); setConfigured(true); markDirty() }} />
         </SettingsSection>
       </div>
     </div>
@@ -1939,10 +2089,6 @@ function ClockInOutPage({ scopeContext }) {
 
   return (
     <div className="content-inner">
-      <div className="page-header">
-        <OverrideLock settingKey="clockIn" scopeContext={scopeContext} />
-      </div>
-
       <div className={locked ? 'form-locked' : ''}>
         <SettingsSection title="Clock-in" description="Control when, where, and how employees are allowed to clock in.">
           <SettingToggleRow
@@ -2019,10 +2165,6 @@ function ShiftAlertsPage({ scopeContext }) {
 
   return (
     <div className="content-inner">
-      <div className="page-header">
-        <OverrideLock settingKey="shiftAlerts" scopeContext={scopeContext} />
-      </div>
-
       <div className={locked ? 'form-locked' : ''}>
         <SettingsSection description="Flags highlight shifts that may need manager attention. Toggle each on or off and adjust thresholds where applicable.">
           {flags.map(flag => (
@@ -2074,10 +2216,6 @@ function ShiftPoolPage({ scopeContext }) {
 
   return (
     <div className="content-inner">
-      <div className="page-header">
-        <OverrideLock settingKey="shiftsFlags" scopeContext={scopeContext} />
-      </div>
-
       <div className={locked ? 'form-locked' : ''}>
         <SettingsSection title="Open shifts" description="Automatically post flagged shifts for other workers to pick up.">
           <SettingToggleRow
@@ -2128,10 +2266,6 @@ function ScheduleVisibilityPage({ scopeContext }) {
 
   return (
     <div className="content-inner">
-      <div className="page-header">
-        <OverrideLock settingKey="scheduleVisibility" scopeContext={scopeContext} />
-      </div>
-
       <div className={locked ? 'form-locked' : ''}>
         <SettingsSection title="Employee schedule visibility" description="Control how much of the schedule each employee can see in the app.">
           <SettingValueRow
@@ -2176,10 +2310,6 @@ function PaySchedulePage({ scopeContext }) {
 
   return (
     <div className="content-inner">
-      <div className="page-header">
-        <OverrideLock settingKey="paySchedule" scopeContext={scopeContext} />
-      </div>
-
       <div className={locked ? 'form-locked' : ''}>
         <SettingsSection title="Pay period">
           <SettingValueRow label="Pay frequency" value={frequency} onChange={v => { setFrequency(v); markDirty() }} options={['Weekly', 'Bi-weekly', 'Semi-monthly', 'Monthly']} />
